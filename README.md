@@ -12,10 +12,7 @@
   - RAG：知识库扩展为北京、大理、成都、西安、厦门、三亚 6 个目的地；Chunk 写入 `destination` metadata，Chroma 向量检索、关键词 fallback、Rerank 与缓存均按目的地隔离，跨城市污染评估自动纳入北京。
   - 数据质量：检索扩展词迁移到 `backend/data/retrieval_rules.json`；RAG 评估集更新为 18 条并与当前攻略内容对齐；新增离线一致性校验，能够发现失效规则词、fallback 候选和评估断言词。
   - 失败降级：模型不可用或候选不足时，行程只展示从当前 RAG 上下文提取的景点、餐饮和住宿名称；没有真实候选就明确留空，不再生成“推荐景点 N”类模板实体。
-  - 开发体验：新增 `start.ps1`，构建并启动后会打印前端、后端和 API 文档地址；新增模型连通性检测脚本，Chat 与 Embedding 可分别诊断。
-- `2026-06-11`
-  - 部署：新增 Docker Compose 容器化部署方案，后端（FastAPI）、前端（Nginx）、Redis 三容器编排，`docker compose up` 一键启动。
-  - 前端：Nginx 反向代理统一前后端入口，两阶段构建优化镜像体积。
+  - 开发体验：新增模型连通性检测脚本，Chat 与 Embedding 可分别诊断。
 - `2026-05-19`
   - 工程观测：新增 token 消耗统计，覆盖 Query Rewrite、Query Embedding、qwen3-rerank 与 Planner 生成链路，并在后端终端输出分项与总量。
   - 接口能力：`/trip/generate` 返回 `token_usage` 字段，`/trip/stats` 支持汇总已保存行程的 token 消耗。
@@ -309,13 +306,13 @@ flowchart TD
     把检索关键词转向量，才能和 ChromaDB 里的文档向量做相似度计算
     ↓
 ③ 向量召回（ChromaDB）
-    用向量相似度找到 top-6 候选片段
+    用向量相似度找到 candidate_k 候选片段（candidate_k = max(RAG_TOP_K×2, 6)）
     ↓
 ④ 噪声预过滤
     去掉"文档开头"等低信息量片段，避免浪费 rerank 的 API 调用
     ↓
 ⑤ Cross-encoder Rerank（qwen3-rerank / 规则 fallback）
-    语义级重排序，选出 top-3 最相关片段
+    语义级重排序，选出 RAG_TOP_K 条最相关片段
     ↓
 ⑥ 写入 Redis 缓存
     RAG 缓存：query → top-k 文本
@@ -366,7 +363,6 @@ TripPlannerDemo/
 │   ├── eval/rag_eval_cases.json        # RAG 评估样例集
 │   ├── scripts/                         # 数据入库、调试、评估与校验脚本
 │   ├── tests/                           # pytest 测试
-│   ├── Dockerfile                       # 后端镜像配置
 │   ├── .env.example                     # 后端环境变量模板
 │   └── requirements.txt
 ├── frontend/
@@ -381,13 +377,9 @@ TripPlannerDemo/
 │   │   ├── types/                       # TypeScript 类型定义
 │   │   ├── App.vue
 │   │   └── main.ts
-│   ├── Dockerfile                       # 前端镜像配置
-│   ├── nginx.conf                       # Nginx 反向代理配置
 │   └── package.json
 ├── docs/                                # 架构、数据与优化文档
 ├── assets/showcase/                     # README 展示截图
-├── docker-compose.yaml                  # 前端、后端、Redis 编排
-├── start.ps1                            # Docker Compose 启动脚本
 ├── README.md
 └── CHANGELOG.md
 ```
@@ -438,13 +430,9 @@ TripPlannerDemo/
 
 ## 🚀 启动项目
 
-项目提供两种启动方式：本地运行适合开发和调试；Docker Compose 适合快速启动完整环境。以下命令默认从项目根目录 `TripPlannerDemo/` 开始执行。
+以下命令默认从项目根目录开始执行。需要本机已安装 Python 3.11、Node.js 与 npm。后端和前端请分别在两个终端中启动。
 
-### 方式一：本地运行（不使用 Docker）
-
-需要本机已安装 Python 3.11、Node.js 与 npm。后端和前端请分别在两个终端中启动。
-
-#### 1. 配置并启动后端
+### 1. 配置并启动后端
 
 ```powershell
 cd backend
@@ -468,98 +456,22 @@ cd backend
 python scripts/ingest_data.py
 ```
 
-#### 2. 配置并启动前端
+### 2. 配置并启动前端
 
 ```powershell
 cd frontend
 Copy-Item .env.example .env
 # 本机运行时，将 VITE_API_BASE_URL 配置为 http://127.0.0.1:8000
+# 填写 VITE_AMAP_JS_KEY（高德 JS API Key）
 npm install
 npm run dev
 ```
 
 前端地址：`http://127.0.0.1:5173`。
 
-#### 3. 可选：开启本地 Redis 缓存
+### 3. 可选：开启本地 Redis 缓存
 
 默认 `REDIS_ENABLED=false`，即使未安装 Redis 也可以运行项目。若本机已安装 Redis，可运行 `redis-server`，再将 `backend/.env` 中的 `REDIS_ENABLED` 改为 `true`，以启用天气、地图和检索缓存。
-
-### 方式二：Docker Compose 运行
-
-需要先安装并启动 [Docker Desktop](https://www.docker.com/products/docker-desktop/)。推荐在 Windows PowerShell 中执行：
-
-```powershell
-.\start.ps1
-```
-
-脚本会构建并在后台启动前端、后端和 Redis。也可以使用 Docker Compose：
-
-```powershell
-docker compose up --build -d
-```
-
-启动后访问：
-
-```text
-前端:     http://localhost
-后端:     http://localhost:8000
-API 文档: http://localhost:8000/docs
-```
-
-停止容器：
-
-```powershell
-docker compose down
-```
-
----
-
-## 🐳 Docker 架构与设计
-
-Docker Compose 将后端、前端和 Redis 打包为三个容器，统一编排管理。
-
-### 架构
-
-```text
-浏览器
-  │
-  ▼
-┌─────────────────────────────────┐
-│  Nginx（前端容器，端口 80）       │
-│  ├── 返回 Vue 静态文件           │
-│  └── /api/* 代理到后端 ─────────┼──┐
-└─────────────────────────────────┘  │
-                                     ▼
-┌─────────────────────────────────┐
-│  FastAPI（后端容器，端口 8000）   │
-│  行程生成 / 编辑 / 天气 / 导出   │
-└─────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────┐
-│  Redis（缓存容器，端口 6379）     │
-│  缓存天气、地图、RAG 结果        │
-└─────────────────────────────────┘
-```
-
-### 新增文件说明
-
-| 文件 | 作用 |
-|------|------|
-| `backend/Dockerfile` | 后端打包：Python 3.11 精简镜像，安装依赖后运行 uvicorn |
-| `frontend/Dockerfile` | 前端两阶段构建：Node 20 编译 Vue → Nginx alpine 托管静态文件 |
-| `frontend/nginx.conf` | Nginx 配置：静态文件托管 + API 反向代理到后端容器 |
-| `docker-compose.yaml` | 服务编排：定义 Redis、后端、前端三个容器的依赖关系和端口映射 |
-| `backend/.dockerignore` | 排除 `__pycache__`、`.env`、`db/` 等不需要打包的文件 |
-| `frontend/.dockerignore` | 排除 `node_modules`、`dist` 等不需要打包的文件 |
-
-### 关键设计
-
-- **两阶段构建**：前端用 Node 编译出静态文件后，只把产物复制到 Nginx 镜像，最终镜像不含 Node.js，体积从几百 MB 缩小到几十 MB。
-- **Nginx 反向代理**：前端静态文件由 Nginx 直接返回，API 请求通过 `proxy_pass` 转发给后端容器，统一入口，避免跨域问题。
-- **层缓存优化**：后端 Dockerfile 先复制 `requirements.txt` 安装依赖，再复制代码。改代码时不会重新安装依赖。
-- **环境变量隔离**：`.env` 文件通过 `env_file` 注入容器，不打包进镜像，避免泄露 API Key。
-- **数据持久化**：Redis 数据和 SQLite 数据库通过 Docker volumes 挂载；当前知识库 Markdown 随后端镜像构建，更新攻略后需重新构建镜像。
 
 ---
 
@@ -582,6 +494,7 @@ CHROMA_COLLECTION_NAME=travel_guides    # 集合名称
 EMBEDDING_MODEL=your_embedding_model    # 嵌入模型，例如 qwen3.7-text-embedding
 EMBEDDING_BATCH_SIZE=10                 # 单批嵌入条数
 RERANK_MODEL=qwen3-rerank              # DashScope Rerank 模型
+RAG_TOP_K=5                             # 最终返回的攻略片段数（改这里即可，无需改代码）
 
 # Redis / 缓存
 REDIS_ENABLED=false                     # 是否开启缓存（需先启动 Redis）

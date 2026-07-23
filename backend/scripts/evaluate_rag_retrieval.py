@@ -14,6 +14,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.agents.tools.rag_tool import build_destination_query
+from app.config import RAG_TOP_K
 from app.rag.retriever import retrieve_travel_guide_chunks
 
 
@@ -41,7 +42,7 @@ def _count_keyword_hits(text: str, keywords: list[str]) -> int:
 
 
 def _evaluate_case(case: dict[str, Any], known_destinations: set[str]) -> dict[str, Any]:
-    top_k = int(case.get("top_k", 5))
+    top_k = int(case.get("top_k", RAG_TOP_K))
     destination = str(case["destination"])
     if destination not in known_destinations:
         raise ValueError(f"Unknown evaluation destination: {destination}")
@@ -161,7 +162,7 @@ def main() -> int:
         int(result["required_keyword_total"]) for result in results
     )
     mrr = sum(result["reciprocal_rank"] for result in results) / total
-    noise_rate = total_noise / (total * int(cases[0].get("top_k", 5))) * 100
+    noise_rate = total_noise / (total * int(cases[0].get("top_k", RAG_TOP_K))) * 100
     total_pollution = sum(int(result["pollution_count"]) for result in results)
     avg_latency = sum(result["latency_ms"] for result in results) / total
     total_embedding_prompt_tokens = sum(

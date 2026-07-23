@@ -5,7 +5,13 @@ import re
 
 import httpx
 
-from app.config import LLM_API_KEY, REDIS_RAG_TTL_SECONDS, REDIS_RERANK_TTL_SECONDS, RERANK_MODEL
+from app.config import (
+    LLM_API_KEY,
+    RAG_TOP_K,
+    REDIS_RAG_TTL_SECONDS,
+    REDIS_RERANK_TTL_SECONDS,
+    RERANK_MODEL,
+)
 from app.rag.vector_db import search_guide_chunks_with_usage
 from app.services.cache_service import get_cached_json, set_cached_json
 
@@ -325,7 +331,7 @@ def rerank_guide_chunks(
 
 
 def retrieve_travel_guide_chunks(
-    query: str, top_k: int = 3, destination: str | None = None
+    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
 ) -> tuple[list[dict[str, str]], dict[str, int], dict[str, int]]:
     """返回带轻量 rerank 的原始攻略片段。返回 (chunks, rerank_usage, embedding_usage)。"""
     candidate_k = max(top_k * 2, 6)
@@ -340,7 +346,7 @@ def retrieve_travel_guide_chunks(
 
 
 def retrieve_travel_guide(
-    query: str, top_k: int = 3, destination: str | None = None
+    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
 ) -> tuple[list[str], dict[str, int], dict[str, int]]:
     """返回最相关的攻略片段。返回 (texts, rerank_usage, embedding_usage)。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}

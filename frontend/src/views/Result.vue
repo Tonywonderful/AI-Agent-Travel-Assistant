@@ -6,8 +6,6 @@ import AmapTripMap from "../components/AmapTripMap.vue";
 import {
   editTrip,
   fetchWeatherForecast,
-  getMarkdownExportUrl,
-  getPdfExportUrl,
   saveTrip,
 } from "../services/api";
 import type { Itinerary, WeatherForecastResponse } from "../types";
@@ -18,14 +16,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   backHome: [];
-  viewHistory: [];
   updated: [itinerary: Itinerary];
 }>();
 
-const saving = ref(false);
-const exportingPdf = ref(false);
-const exportingMarkdown = ref(false);
 const editing = ref(false);
+const lastSavedTripId = ref("");
 const editScope = ref("day_1");
 const editInstruction = ref("这一天节奏更轻松一点，减少固定安排。");
 const weatherLoading = ref(false);
@@ -129,37 +124,30 @@ async function loadWeather() {
   finally { weatherLoading.value = false; }
 }
 
+async function autoSave(itinerary?: Itinerary | null, showSuccess = false) {
+  const it = itinerary
+    ? { ...itinerary, tips: itinerary.tips || [] }
+    : buildVisibleItinerary();
+  if (!it) return;
+  try {
+    await saveTrip(it);
+    lastSavedTripId.value = it.trip_id;
+    if (showSuccess) {
+      message.success("行程已自动保存到历史。");
+    }
+  } catch {
+    message.error("自动保存到历史失败。");
+  }
+}
+
 watch(() => props.itinerary?.destination, () => { void loadWeather(); }, { immediate: true });
-watch(() => props.itinerary?.trip_id, () => {
+watch(() => props.itinerary?.trip_id, (tripId) => {
   const first = props.itinerary?.days[0];
   editScope.value = first ? `day_${first.day_index}` : "day_1";
+  if (tripId && tripId !== lastSavedTripId.value) {
+    void autoSave(props.itinerary, true);
+  }
 }, { immediate: true });
-
-async function openPdfExport() {
-  const it = buildVisibleItinerary(); if (!it) return;
-  const w = window.open("about:blank", "_blank");
-  exportingPdf.value = true;
-  try { await saveTrip(it); if (w) w.location.href = getPdfExportUrl(it.trip_id); }
-  catch { w?.close(); message.error("导出 PDF 前同步当前行程失败。"); }
-  finally { exportingPdf.value = false; }
-}
-
-async function openMarkdownExport() {
-  const it = buildVisibleItinerary(); if (!it) return;
-  const w = window.open("about:blank", "_blank");
-  exportingMarkdown.value = true;
-  try { await saveTrip(it); if (w) w.location.href = getMarkdownExportUrl(it.trip_id); }
-  catch { w?.close(); message.error("导出 Markdown 前同步当前行程失败。"); }
-  finally { exportingMarkdown.value = false; }
-}
-
-async function handleSave() {
-  const it = buildVisibleItinerary(); if (!it) return;
-  saving.value = true;
-  try { await saveTrip(it); message.success("行程已保存。"); }
-  catch { message.error("保存行程失败。"); }
-  finally { saving.value = false; }
-}
 
 async function handleEdit() {
   if (!props.itinerary) return;
@@ -169,7 +157,8 @@ async function handleEdit() {
   try {
     const updated = await editTrip({ trip_id: props.itinerary.trip_id, current_itinerary: props.itinerary, user_instruction: instruction, edit_scope: editScope.value, preserve_constraints: ["保留预算结构", "保留目的地和旅行日期"] });
     emit("updated", updated);
-    message.success("行程已智能调整。");
+    await autoSave(updated, false);
+    message.success("行程已智能调整，并已同步到历史。");
   } catch { message.error("智能调整失败。"); }
   finally { editing.value = false; }
 }
@@ -177,23 +166,6 @@ async function handleEdit() {
 
 <template>
   <section v-if="itinerary" class="result-page">
-    <!-- 侧边栏 -->
-    <aside class="sidebar">
-      <div class="sidebar__section">
-        <div class="sidebar__label">操作</div>
-        <button class="ios-btn ios-btn--text" @click="$emit('backHome')">← 返回规划</button>
-        <button class="ios-btn ios-btn--text" :disabled="saving" @click="handleSave">{{ saving ? "保存中..." : "保存行程" }}</button>
-        <button class="ios-btn ios-btn--text" @click="$emit('viewHistory')">历史列表</button>
-      </div>
-      <div class="sidebar__divider" />
-      <div class="sidebar__section">
-        <div class="sidebar__label">导出</div>
-        <button class="ios-btn ios-btn--text" :disabled="exportingPdf" @click="openPdfExport">{{ exportingPdf ? "准备中..." : "导出 PDF" }}</button>
-        <button class="ios-btn ios-btn--text" :disabled="exportingMarkdown" @click="openMarkdownExport">{{ exportingMarkdown ? "准备中..." : "导出 Markdown" }}</button>
-      </div>
-    </aside>
-
-    <!-- 主内容 -->
     <div class="result-content">
       <!-- 行程概览 -->
       <div class="ios-card">
@@ -328,41 +300,7 @@ async function handleEdit() {
 <style scoped>
 .result-page {
   display: grid;
-  grid-template-columns: 180px 1fr;
   gap: 16px;
-}
-
-/* 侧边栏 */
-.sidebar {
-  align-self: start;
-  position: sticky;
-  top: 76px;
-  padding: 16px;
-  border-radius: 12px;
-  background: #FFFFFF;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-.sidebar__section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sidebar__label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #8E8E93;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 4px 8px;
-  margin-bottom: 4px;
-}
-
-.sidebar__divider {
-  height: 0.5px;
-  background: rgba(0, 0, 0, 0.06);
-  margin: 8px 0;
 }
 
 /* iOS 按钮 */
@@ -379,11 +317,6 @@ async function handleEdit() {
 
 .ios-btn:active { transform: scale(0.97); }
 .ios-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.ios-btn--text {
-  background: transparent;
-  color: #007AFF;
-}
 
 .ios-btn--primary {
   background: #007AFF;
@@ -681,11 +614,6 @@ async function handleEdit() {
 .empty-state { min-height: 400px; }
 
 @media (max-width: 960px) {
-  .result-page { grid-template-columns: 1fr; }
-  .sidebar { position: static; display: flex; gap: 16px; flex-wrap: wrap; }
-  .sidebar__section { flex-direction: row; flex-wrap: wrap; gap: 8px; }
-  .sidebar__divider { display: none; }
-  .sidebar__label { display: none; }
   .result-content { grid-template-columns: 1fr; }
 }
 </style>

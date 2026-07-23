@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.agents.tools.rag_tool import build_destination_query
+from app.config import RAG_TOP_K
 from app.rag.retriever import retrieve_travel_guide_chunks
 
 
@@ -37,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="补充备注，例如：不想太早起床，希望安排一个适合看日落的地点。",
     )
-    parser.add_argument("--top-k", type=int, default=5, help="召回数量")
+    parser.add_argument("--top-k", type=int, default=RAG_TOP_K, help="召回数量")
     return parser
 
 

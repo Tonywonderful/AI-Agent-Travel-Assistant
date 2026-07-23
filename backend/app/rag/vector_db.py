@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from hashlib import md5
+from pathlib import Path
 
 import httpx
 
@@ -15,6 +16,11 @@ from app.config import (
     EMBEDDING_MODEL,
     EMBEDDING_PROVIDER,
     OLLAMA_EMBED_URL,
+    RAG_TOP_K,
+)
+from app.rag.document_registry import (
+    compute_content_hash,
+    upsert_document,
 )
 from app.rag.guide_catalog import destination_for_guide
 
@@ -68,28 +74,78 @@ def _build_document_text(chunk: dict[str, str]) -> str:
 
 
 def load_guide_chunks() -> list[dict[str, str]]:
-    """读取 backend/data 下的攻略文件，并切分成可检索片段。"""
+    """读取 backend/data 下的攻略文件，并切分成可检索片段。
+
+    每个 chunk 携带：
+    - document_id: 正式文档编号（= 文件名）
+    - source: 兼容旧字段，与 document_id 相同
+    - content_hash: 所属文档的全文指纹（同一文档下各 chunk 相同）
+    """
     chunks: list[dict[str, str]] = []
     for guide_file in sorted(DATA_DIR.glob("*.md*")):
-        destination = destination_for_guide(guide_file.name)
+        document_id = guide_file.name
+        destination = destination_for_guide(document_id)
         if destination is None:
             raise ValueError(
-                f"攻略文件缺少 destination 映射：{guide_file.name}。"
+                f"攻略文件缺少 destination 映射：{document_id}。"
                 "请先在 app/rag/guide_catalog.py 中登记该文件。"
             )
         text = guide_file.read_text(encoding="utf-8")
-        raw_chunks = _split_markdown_into_chunks(text, guide_file.name)
+        content_hash = compute_content_hash(text)
+        raw_chunks = _split_markdown_into_chunks(text, document_id)
         for chunk in raw_chunks:
             chunks.append(
                 {
-                    "id": _build_chunk_id(chunk["source"], chunk["title"], chunk["text"]),
+                    "id": _build_chunk_id(document_id, chunk["title"], chunk["text"]),
                     "title": chunk["title"],
                     "text": chunk["text"],
-                    "source": chunk["source"],
+                    "source": document_id,
+                    "document_id": document_id,
+                    "content_hash": content_hash,
                     "destination": destination,
                 }
             )
     return chunks
+
+
+def load_guide_documents() -> list[dict[str, object]]:
+    """按文档粒度读取 data 目录：document_id + content_hash + chunks。"""
+    documents: list[dict[str, object]] = []
+    for guide_file in sorted(DATA_DIR.glob("*.md*")):
+        document_id = guide_file.name
+        destination = destination_for_guide(document_id)
+        if destination is None:
+            raise ValueError(
+                f"攻略文件缺少 destination 映射：{document_id}。"
+                "请先在 app/rag/guide_catalog.py 中登记该文件。"
+            )
+        text = guide_file.read_text(encoding="utf-8")
+        content_hash = compute_content_hash(text)
+        raw_chunks = _split_markdown_into_chunks(text, document_id)
+        chunks: list[dict[str, str]] = []
+        for chunk in raw_chunks:
+            chunks.append(
+                {
+                    "id": _build_chunk_id(document_id, chunk["title"], chunk["text"]),
+                    "title": chunk["title"],
+                    "text": chunk["text"],
+                    "source": document_id,
+                    "document_id": document_id,
+                    "content_hash": content_hash,
+                    "destination": destination,
+                }
+            )
+        documents.append(
+            {
+                "document_id": document_id,
+                "source_path": str(guide_file.relative_to(BACKEND_DIR)).replace("\\", "/"),
+                "content_hash": content_hash,
+                "last_modified": guide_file.stat().st_mtime,
+                "destination": destination,
+                "chunks": chunks,
+            }
+        )
+    return documents
 
 
 def _extract_keywords(query: str) -> list[str]:
@@ -105,7 +161,7 @@ def _score_chunk(query: str, chunk_text: str) -> int:
 
 
 def _search_guide_chunks_by_keywords(
-    query: str, top_k: int = 3, destination: str | None = None
+    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
 ) -> list[dict[str, str]]:
     """回退方案：使用关键词匹配本地攻略片段。"""
     scored_chunks: list[tuple[int, dict[str, str]]] = []
@@ -280,25 +336,171 @@ def _get_chroma_collection():
     )
 
 
+def delete_chunks_by_document_id(document_id: str) -> int:
+    """按 document_id 删除向量库中该文档的全部 chunk，返回删除的数量。"""
+    collection = _get_chroma_collection()
+    if collection is None:
+        raise RuntimeError("当前环境缺少 chromadb，无法删除 chunk。")
+
+    # 兼容旧数据：早期只写了 source，没有 document_id
+    id_set: set[str] = set()
+    for where in (
+        {"document_id": document_id},
+        {"source": document_id},
+    ):
+        try:
+            existing = collection.get(where=where)
+        except Exception:
+            existing = {"ids": []}
+        for chunk_id in existing.get("ids") or []:
+            id_set.add(chunk_id)
+
+    if not id_set:
+        return 0
+    ids = list(id_set)
+    collection.delete(ids=ids)
+    return len(ids)
+
+
+def load_guide_document(document_id: str) -> dict[str, object] | None:
+    """读取并切分单篇文档；文件不存在返回 None。"""
+    guide_file = DATA_DIR / document_id
+    if not guide_file.is_file():
+        return None
+
+    destination = destination_for_guide(document_id)
+    if destination is None:
+        raise ValueError(
+            f"攻略文件缺少 destination 映射：{document_id}。"
+            "请先在 app/rag/guide_catalog.py 中登记该文件。"
+        )
+
+    text = guide_file.read_text(encoding="utf-8")
+    content_hash = compute_content_hash(text)
+    raw_chunks = _split_markdown_into_chunks(text, document_id)
+    chunks: list[dict[str, str]] = []
+    for chunk in raw_chunks:
+        chunks.append(
+            {
+                "id": _build_chunk_id(document_id, chunk["title"], chunk["text"]),
+                "title": chunk["title"],
+                "text": chunk["text"],
+                "source": document_id,
+                "document_id": document_id,
+                "content_hash": content_hash,
+                "destination": destination,
+            }
+        )
+    return {
+        "document_id": document_id,
+        "source_path": str(guide_file.relative_to(BACKEND_DIR)).replace("\\", "/"),
+        "content_hash": content_hash,
+        "last_modified": guide_file.stat().st_mtime,
+        "destination": destination,
+        "chunks": chunks,
+    }
+
+
+def _upsert_chunks_to_collection(collection, embeddings, chunks: list[dict[str, str]]) -> int:
+    """把一组 chunk 向量化后写入 Chroma。"""
+    if not chunks:
+        return 0
+    documents = [_build_document_text(chunk) for chunk in chunks]
+    vectors = embeddings.embed_documents(documents)
+    ids = [chunk["id"] for chunk in chunks]
+    metadatas = [
+        {
+            "title": chunk["title"],
+            "source": chunk["source"],
+            "document_id": chunk["document_id"],
+            "content_hash": chunk["content_hash"],
+            "destination": chunk["destination"],
+        }
+        for chunk in chunks
+    ]
+    collection.upsert(
+        ids=ids,
+        documents=documents,
+        metadatas=metadatas,
+        embeddings=vectors,
+    )
+    return len(chunks)
+
+
+def ingest_single_document_to_chroma(document_id: str) -> int:
+    """
+    单篇文档入库（新增用）：切割 → embedding → 写入 → 更新清单。
+    不删除旧 chunk；修改场景请先调用 delete_chunks_by_document_id。
+    """
+    guide_document = load_guide_document(document_id)
+    if guide_document is None:
+        raise FileNotFoundError(f"文档不存在，无法入库：{document_id}")
+
+    embeddings = _build_embeddings()
+    collection = _get_chroma_collection()
+    if embeddings is None:
+        raise RuntimeError("当前环境缺少 embedding 能力，无法写入 Chroma。")
+    if collection is None:
+        raise RuntimeError("当前环境缺少 chromadb，无法写入 Chroma。")
+
+    chunks: list[dict[str, str]] = list(guide_document["chunks"])  # type: ignore[arg-type]
+    written = _upsert_chunks_to_collection(collection, embeddings, chunks)
+    upsert_document(
+        document_id=str(guide_document["document_id"]),
+        source_path=str(guide_document["source_path"]),
+        content_hash=str(guide_document["content_hash"]),
+        last_modified=float(guide_document["last_modified"]),
+        chunk_count=written,
+        destination=str(guide_document["destination"]),
+        status="active",
+    )
+    return written
+
+
+def replace_document_in_chroma(document_id: str) -> int:
+    """修改用：先按 document_id 删光旧 chunk，再整篇重切入库。"""
+    deleted = delete_chunks_by_document_id(document_id)
+    written = ingest_single_document_to_chroma(document_id)
+    print(
+        f"[kb] replace document_id={document_id}: deleted_chunks={deleted}, written_chunks={written}"
+    )
+    return written
+
+
+def remove_document_from_chroma(document_id: str) -> int:
+    """删除用：清掉该文档全部 chunk，并移除清单记录。"""
+    from app.rag.document_registry import remove_document
+
+    deleted = delete_chunks_by_document_id(document_id)
+    remove_document(document_id)
+    print(f"[kb] remove document_id={document_id}: deleted_chunks={deleted}")
+    return deleted
+
+
 def ingest_guide_chunks_to_chroma() -> int:
     """
-    把本地攻略片段写入 Chroma。
+    把本地攻略片段写入 Chroma，并同步维护文档清单。
 
     流程是：
     1. 创建 embedding 模型
     2. 获取 Chroma collection
-    3. 读取并切分本地攻略
+    3. 按文档读取并切分本地攻略（带 document_id / content_hash）
     4. 生成向量
     5. 把向量、文本和 metadata 一起写入 Chroma
+    6. 把 document_id + content_hash 写入 SQLite 文档清单
     """
     embeddings = _build_embeddings()
     collection = _get_chroma_collection()
-    chunks = load_guide_chunks()
+    guide_documents = load_guide_documents()
 
     if embeddings is None:
         raise RuntimeError("当前环境缺少 embedding 能力，无法写入 Chroma。")
     if collection is None:
         raise RuntimeError("当前环境缺少 chromadb，无法写入 Chroma。")
+
+    chunks: list[dict[str, str]] = []
+    for guide_document in guide_documents:
+        chunks.extend(guide_document["chunks"])  # type: ignore[arg-type]
 
     documents = [_build_document_text(chunk) for chunk in chunks]
     vectors = embeddings.embed_documents(documents)
@@ -307,6 +509,8 @@ def ingest_guide_chunks_to_chroma() -> int:
         {
             "title": chunk["title"],
             "source": chunk["source"],
+            "document_id": chunk["document_id"],
+            "content_hash": chunk["content_hash"],
             "destination": chunk["destination"],
         }
         for chunk in chunks
@@ -318,11 +522,24 @@ def ingest_guide_chunks_to_chroma() -> int:
         metadatas=metadatas,
         embeddings=vectors,
     )
+
+    # 同步文档清单：document_id + content_hash + chunk 数量
+    for guide_document in guide_documents:
+        upsert_document(
+            document_id=str(guide_document["document_id"]),
+            source_path=str(guide_document["source_path"]),
+            content_hash=str(guide_document["content_hash"]),
+            last_modified=float(guide_document["last_modified"]),
+            chunk_count=len(guide_document["chunks"]),  # type: ignore[arg-type]
+            destination=str(guide_document["destination"]),
+            status="active",
+        )
+
     return len(chunks)
 
 
 def _search_guide_chunks_by_chroma(
-    query: str, top_k: int = 3, destination: str | None = None
+    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
     """优先使用 Chroma 做向量检索，并返回在线 query embedding token。"""
     collection = _get_chroma_collection()
@@ -352,6 +569,10 @@ def _search_guide_chunks_by_chroma(
     for document, metadata in zip(documents, metadatas):
         title = metadata.get("title", "未命名片段") if metadata else "未命名片段"
         source = metadata.get("source", "未知来源") if metadata else "未知来源"
+        document_id = (
+            (metadata.get("document_id") or source) if metadata else source
+        )
+        content_hash = metadata.get("content_hash", "") if metadata else ""
         chunk_destination = metadata.get("destination", "") if metadata else ""
         text = document.split("\n", 1)[1] if "\n" in document else document
         matched_chunks.append(
@@ -359,6 +580,8 @@ def _search_guide_chunks_by_chroma(
                 "title": title,
                 "text": text,
                 "source": source,
+                "document_id": document_id,
+                "content_hash": content_hash,
                 "destination": chunk_destination,
             }
         )
@@ -367,7 +590,7 @@ def _search_guide_chunks_by_chroma(
 
 
 def search_guide_chunks_with_usage(
-    query: str, top_k: int = 3, destination: str | None = None
+    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
     """
     从本地攻略片段里找最相关的 top_k 条结果。
@@ -386,7 +609,7 @@ def search_guide_chunks_with_usage(
 
 
 def search_guide_chunks(
-    query: str, top_k: int = 3, destination: str | None = None
+    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
 ) -> list[dict[str, str]]:
     """兼容旧调用：只返回检索片段，不返回 token usage。"""
     chunks, _ = search_guide_chunks_with_usage(

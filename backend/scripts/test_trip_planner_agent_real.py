@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.agents.trip_planner_agent import collect_trip_context, generate_planner_draft
-from app.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from app.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, RAG_TOP_K
 from app.models.schemas import TripRequest
 
 
@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="不想太早起床，希望安排一个适合看日落的地点",
         help="额外备注",
     )
-    parser.add_argument("--top-k", type=int, default=5, help="打印多少条 RAG 上下文")
+    parser.add_argument("--top-k", type=int, default=RAG_TOP_K, help="打印多少条 RAG 上下文")
     return parser
 
 

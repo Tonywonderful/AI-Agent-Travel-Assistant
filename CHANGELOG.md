@@ -21,21 +21,9 @@
 
 ### 开发与验证
 
-- 新增 `start.ps1`：构建并启动 Docker Compose 后打印前端、后端和 API 文档地址。
 - 新增 `test_model_connection.py`，可独立检测 Chat 与 Embedding 模型连通性。
 - 已完成定向验收：fallback 回归 `1 passed`、RAG 规则 `3 passed`、评估断言 `2 passed`、目的地 metadata `5 passed`、知识库一致性 `2 passed`；知识库校验脚本输出“知识库一致性校验通过”。
 - 当前本地 Markdown 攻略仍属于参考知识，不应被视为实时、逐条核验的商户、价格或营业状态数据。
-
-## 2026-06-11
-
-### Docker 容器化部署
-
-- 新增 `backend/Dockerfile`：基于 Python 3.11-slim 镜像，先复制 `requirements.txt` 安装依赖（利用层缓存），再复制应用代码，运行 uvicorn。
-- 新增 `frontend/Dockerfile`：两阶段构建——Node 20 编译 Vue 应用，Nginx alpine 托管静态文件，最终镜像不含 Node.js，体积从几百 MB 缩小到几十 MB。
-- 新增 `frontend/nginx.conf`：Nginx 配置，负责静态文件托管 + API 反向代理到后端容器，`try_files` 支持 Vue SPA 路由。
-- 新增 `docker-compose.yaml`：编排 Redis、后端、前端三个服务，定义依赖关系、端口映射、数据卷持久化和环境变量注入。
-- 新增 `.dockerignore`：排除 `__pycache__`、`.env`、`node_modules` 等不需要打包的文件。
-- 后端 `main.py` 新增 Docker 环境的 CORS 允许源（`http://localhost`、`http://localhost:80`）。
 
 ## 2026-04-15
 
@@ -46,7 +34,7 @@
 - 接入高德地图地理编码、POI 搜索和路线估算缓存，减少重复地图查询开销。
 - 接入 RAG 检索结果缓存，复用高频 query 的攻略片段召回结果。
 - 增加基础 `cache hit / cache miss` 日志，便于本地验证缓存命中情况。
-- 通过本地 Docker Redis 容器验证缓存 key 写入成功。
+- 通过本地 Redis 验证缓存 key 写入成功。
 
 **本次验证到的缓存 key**
 

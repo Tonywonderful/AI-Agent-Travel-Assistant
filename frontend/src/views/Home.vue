@@ -123,11 +123,16 @@ async function handleSubmit() {
       <div class="ios-form-row ios-form-row--3col">
         <div class="ios-field">
           <label class="ios-label">开始日期</label>
-          <input v-model="formState.startDate" class="ios-input" />
+          <input v-model="formState.startDate" type="date" class="ios-input" />
         </div>
         <div class="ios-field">
           <label class="ios-label">结束日期</label>
-          <input v-model="formState.endDate" class="ios-input" />
+          <input
+            v-model="formState.endDate"
+            type="date"
+            class="ios-input"
+            :min="formState.startDate"
+          />
         </div>
         <div class="ios-field">
           <label class="ios-label">人数</label>

@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import app.agents.trip_planner_agent as trip_planner_agent  # noqa: E402
+from app.config import RAG_TOP_K  # noqa: E402
 from app.models.schemas import (  # noqa: E402
     BudgetBreakdown,
     DayPlan,
@@ -125,7 +126,7 @@ def test_collect_trip_context_calls_rag_tool_with_expected_arguments(monkeypatch
         "preferences": ["美食", "拍照"],
         "pace": "轻松",
         "special_notes": "想看日落，不想早起",
-        "top_k": 5,
+        "top_k": RAG_TOP_K,
     }
 
 

@@ -9,16 +9,17 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import app.rag.retriever as retriever  # noqa: E402
+from app.config import RAG_TOP_K  # noqa: E402
 
 
 def test_retrieve_travel_guide_formats_chunks_as_text(monkeypatch) -> None:
     """测试 retriever 会把检索结果格式化成可直接引用的文本片段。"""
 
     def fake_search_guide_chunks_with_usage(
-        query: str, top_k: int = 3
+        query: str, top_k: int = RAG_TOP_K
     ) -> tuple[list[dict[str, str]], dict[str, int]]:
         assert query == "大理 古城 美食"
-        assert top_k == 8
+        assert top_k == 6
         return [
             {
                 "source": "dali_guide.md",
@@ -46,7 +47,7 @@ def test_retrieve_travel_guide_returns_empty_when_no_chunks(monkeypatch) -> None
     """测试没有召回任何片段时，会返回空列表。"""
 
     def fake_search_guide_chunks_with_usage(
-        query: str, top_k: int = 3
+        query: str, top_k: int = RAG_TOP_K
     ) -> tuple[list[dict[str, str]], dict[str, int]]:
         assert query == "火星 沙漠 极地科考"
         assert top_k == 6

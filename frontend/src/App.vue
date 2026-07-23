@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
+import FloatingChatAssistant from "./components/FloatingChatAssistant.vue";
 import type { Itinerary } from "./types";
 import History from "./views/History.vue";
 import Home from "./views/Home.vue";
@@ -67,7 +68,6 @@ function updateCurrentItinerary(itinerary: Itinerary) {
         v-else-if="currentView === 'result'"
         :itinerary="latestItinerary"
         @back-home="currentView = 'home'"
-        @view-history="currentView = 'history'"
         @updated="updateCurrentItinerary"
       />
       <History
@@ -76,6 +76,11 @@ function updateCurrentItinerary(itinerary: Itinerary) {
         @open-trip="openTrip"
       />
     </main>
+
+    <FloatingChatAssistant
+      :current-view="currentView"
+      :itinerary="latestItinerary"
+    />
   </div>
 </template>
 

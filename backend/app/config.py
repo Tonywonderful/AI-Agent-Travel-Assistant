@@ -54,6 +54,8 @@ OLLAMA_EMBED_URL = os.getenv(
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "") or os.getenv("LLM_API_KEY", "")
 EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "") or os.getenv("LLM_BASE_URL", "")
 RERANK_MODEL = os.getenv("RERANK_MODEL", "qwen3-rerank")
+# 最终返回的攻略片段数；向量召回候选数为 max(RAG_TOP_K * 2, 6)
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 
 
 # Redis / 缓存配置
@@ -73,3 +75,11 @@ AMAP_BASE_URL = os.getenv("AMAP_BASE_URL", "https://restapi.amap.com/v3")
 AMAP_DEFAULT_CITY = os.getenv("AMAP_DEFAULT_CITY", "")
 AMAP_TIMEOUT_SECONDS = int(os.getenv("AMAP_TIMEOUT_SECONDS", "20"))
 ENABLE_AMAP_ENRICHMENT = os.getenv("ENABLE_AMAP_ENRICHMENT", "false").lower() == "true"
+
+
+# 联网搜索（Exa MCP，与 OpenCode websearch 同源；默认可不配 key）
+EXA_MCP_URL = os.getenv("EXA_MCP_URL", "https://mcp.exa.ai/mcp").strip()
+EXA_API_KEY = os.getenv("EXA_API_KEY", "").strip()
+EXA_SEARCH_TIMEOUT_SECONDS = int(os.getenv("EXA_SEARCH_TIMEOUT_SECONDS", "25"))
+WEB_SEARCH_DEFAULT_NUM_RESULTS = int(os.getenv("WEB_SEARCH_DEFAULT_NUM_RESULTS", "5"))
+WEB_SEARCH_CONTEXT_MAX_CHARS = int(os.getenv("WEB_SEARCH_CONTEXT_MAX_CHARS", "8000"))

@@ -12,6 +12,7 @@ from app.config import (
     LLM_MAX_RETRIES,
     LLM_MODEL,
     LLM_TIMEOUT_SECONDS,
+    RAG_TOP_K,
 )
 from app.models.schemas import DayPlan, TripEditRequest, TripRequest
 
@@ -113,7 +114,7 @@ def collect_trip_context(
     preferences: list[str] | None = None,
     pace: str | None = None,
     special_notes: str | None = None,
-    top_k: int = 5,
+    top_k: int = RAG_TOP_K,
 ) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
     """收集本地攻略片段。返回 (contexts, rewrite_usage, rerank_usage, embedding_usage)。"""
     return get_destination_guide_context(

@@ -86,3 +86,48 @@ def set_cached_json(
     except Exception as exc:  # pragma: no cover - 缓存失败不影响主流程
         logger.debug("写入 Redis 缓存失败：%s", exc)
 
+
+def delete_by_prefix(prefix: str) -> int:
+    """
+    删除匹配逻辑前缀的缓存 key（会自动加上 REDIS_KEY_PREFIX）。
+
+    例：prefix="rag:guide:" → 删除 trip_planner:rag:guide:*
+    Redis 不可用时返回 0。
+    """
+    client = _get_redis_client()
+    if client is None:
+        return 0
+
+    pattern = _build_key(f"{prefix}*")
+    deleted = 0
+    try:
+        for key in client.scan_iter(match=pattern, count=200):
+            client.delete(key)
+            deleted += 1
+    except Exception as exc:  # pragma: no cover
+        logger.debug("按前缀删除 Redis 缓存失败：%s", exc)
+        return deleted
+    return deleted
+
+
+def invalidate_rag_caches() -> dict[str, int]:
+    """知识库更新后失效检索相关缓存（RAG 结果 + rerank）。"""
+    rag_deleted = delete_by_prefix("rag:guide:")
+    rerank_deleted = delete_by_prefix("rerank:")
+    total = rag_deleted + rerank_deleted
+    if total:
+        logger.info(
+            "invalidate rag caches: rag=%d rerank=%d total=%d",
+            rag_deleted,
+            rerank_deleted,
+            total,
+        )
+        print(
+            f"[cache] invalidated rag={rag_deleted} rerank={rerank_deleted} total={total}"
+        )
+    return {
+        "rag": rag_deleted,
+        "rerank": rerank_deleted,
+        "total": total,
+    }
+

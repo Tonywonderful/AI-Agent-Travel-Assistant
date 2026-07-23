@@ -20,6 +20,8 @@ def test_loaded_guide_chunks_have_known_destinations() -> None:
         "北京", "成都", "大理", "三亚", "厦门", "西安"
     }
     assert all(chunk["destination"] for chunk in chunks)
+    assert all(chunk.get("document_id") for chunk in chunks)
+    assert all(chunk.get("content_hash") for chunk in chunks)
 
 
 def test_keyword_fallback_filters_chunks_by_destination(monkeypatch) -> None:
@@ -52,6 +54,8 @@ def test_chroma_search_filters_by_destination_metadata(monkeypatch) -> None:
                 "metadatas": [[
                     {
                         "source": "beijing_guide.md",
+                        "document_id": "beijing_guide.md",
+                        "content_hash": "a" * 64,
                         "title": "故宫",
                         "destination": "北京",
                     }
@@ -73,6 +77,8 @@ def test_chroma_search_filters_by_destination_metadata(monkeypatch) -> None:
 
     assert captured["where"] == {"destination": "北京"}
     assert results[0]["destination"] == "北京"
+    assert results[0]["document_id"] == "beijing_guide.md"
+    assert results[0]["content_hash"] == "a" * 64
 
 
 def test_evaluation_counts_metadata_mismatch_as_cross_destination_pollution(monkeypatch) -> None:

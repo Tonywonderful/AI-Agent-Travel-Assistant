@@ -9,6 +9,7 @@ from app.config import (
     LLM_MAX_RETRIES,
     LLM_MODEL,
     LLM_TIMEOUT_SECONDS,
+    RAG_TOP_K,
 )
 from app.rag.retriever import retrieve_travel_guide
 
@@ -250,7 +251,7 @@ def get_destination_guide_context(
     preferences: list[str] | None = None,
     pace: str | None = None,
     special_notes: str | None = None,
-    top_k: int = 5,
+    top_k: int = RAG_TOP_K,
 ) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
     """根据目的地和偏好返回本地攻略片段。返回 (contexts, rewrite_usage, rerank_usage, embedding_usage)。"""
     query, rewrite_usage = build_destination_query(
