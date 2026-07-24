@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from app.config import REDIS_WEATHER_TTL_SECONDS
@@ -12,10 +13,12 @@ from app.services.weather_service import get_weather_forecast
 logger = logging.getLogger(__name__)
 
 # 固定优质目的地池：与知识库攻略城市对齐。
+# adcode 为高德行政区划码，天气查询直接使用，避免额外 geocode。
 DESTINATION_CATALOG: list[dict[str, Any]] = [
     {
         "city": "北京",
         "city_key": "beijing",
+        "adcode": "110000",
         "tagline": "古迹与城市风光",
         "suggested_days": 3,
         "default_preferences": ["拍照", "古镇", "美食"],
@@ -26,6 +29,7 @@ DESTINATION_CATALOG: list[dict[str, Any]] = [
     {
         "city": "成都",
         "city_key": "chengdu",
+        "adcode": "510100",
         "tagline": "美食与慢生活",
         "suggested_days": 3,
         "default_preferences": ["美食", "休闲", "拍照"],
@@ -36,6 +40,7 @@ DESTINATION_CATALOG: list[dict[str, Any]] = [
     {
         "city": "大理",
         "city_key": "dali",
+        "adcode": "532901",
         "tagline": "风花雪月，轻松慢游",
         "suggested_days": 3,
         "default_preferences": ["自然风景", "拍照", "古镇"],
@@ -46,6 +51,7 @@ DESTINATION_CATALOG: list[dict[str, Any]] = [
     {
         "city": "三亚",
         "city_key": "sanya",
+        "adcode": "460200",
         "tagline": "阳光海岸度假",
         "suggested_days": 4,
         "default_preferences": ["自然风景", "休闲", "拍照"],
@@ -56,6 +62,7 @@ DESTINATION_CATALOG: list[dict[str, Any]] = [
     {
         "city": "厦门",
         "city_key": "xiamen",
+        "adcode": "350200",
         "tagline": "文艺海岛与老街",
         "suggested_days": 3,
         "default_preferences": ["拍照", "美食", "休闲"],
@@ -66,6 +73,7 @@ DESTINATION_CATALOG: list[dict[str, Any]] = [
     {
         "city": "西安",
         "city_key": "xian",
+        "adcode": "610100",
         "tagline": "历史厚重，烟火气足",
         "suggested_days": 3,
         "default_preferences": ["古镇", "美食", "拍照"],
@@ -76,7 +84,10 @@ DESTINATION_CATALOG: list[dict[str, Any]] = [
 ]
 
 _FORECAST_DAYS = 3
-_CACHE_KEY = "recommendations:hot:v1"
+_CACHE_KEY = "recommendations:hot:v2"
+# 有界并发：避开高德个人开发者常见 QPS/瞬时并发限制，同时比串行快。
+# 6 城场景下 4 已足够；城市变多时也不会无脑打满。
+_WEATHER_MAX_WORKERS = 4
 
 
 def _weather_text_score(text: str | None) -> int:
@@ -184,8 +195,9 @@ def _build_weather_label(weather_names: list[str], score: int) -> str:
 
 def _summarize_city(city_meta: dict[str, Any]) -> dict[str, Any]:
     city = city_meta["city"]
+    adcode = city_meta.get("adcode")
     try:
-        forecast = get_weather_forecast(city)
+        forecast = get_weather_forecast(city, adcode=adcode)
         score, label = score_forecast_days(forecast.get("days") or [])
         days = (forecast.get("days") or [])[:_FORECAST_DAYS]
         return {
@@ -220,13 +232,33 @@ def _summarize_city(city_meta: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+def _summarize_cities_parallel(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """有界并发拉取各城市天气并汇总。"""
+    if not catalog:
+        return []
+    if len(catalog) == 1:
+        return [_summarize_city(catalog[0])]
+
+    workers = max(1, min(_WEATHER_MAX_WORKERS, len(catalog)))
+    items: list[dict[str, Any] | None] = [None] * len(catalog)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(_summarize_city, meta): index
+            for index, meta in enumerate(catalog)
+        }
+        for future in as_completed(future_map):
+            index = future_map[future]
+            items[index] = future.result()
+    return [item for item in items if item is not None]
+
+
 def get_hot_destination_recommendations() -> dict[str, Any]:
     """返回按天气排序的热门目的地推荐。"""
     cached = get_cached_json(_CACHE_KEY)
     if cached is not None:
         return cached
 
-    items = [_summarize_city(meta) for meta in DESTINATION_CATALOG]
+    items = _summarize_cities_parallel(DESTINATION_CATALOG)
     items.sort(key=lambda item: (-int(item.get("weather_score") or 0), item["city"]))
 
     result = {

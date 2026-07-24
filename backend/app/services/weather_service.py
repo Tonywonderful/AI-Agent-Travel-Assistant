@@ -54,17 +54,25 @@ def _normalize_cache_text(value: str | None) -> str:
     return value.strip().lower()
 
 
-def get_weather_forecast(city: str) -> dict[str, Any]:
-    """获取指定城市的未来天气预报。"""
-    cache_key = f"weather:forecast:{_normalize_cache_text(city)}"
+def get_weather_forecast(city: str, adcode: str | None = None) -> dict[str, Any]:
+    """获取指定城市的未来天气预报。
+
+    优先使用调用方传入的 adcode；未提供时再通过地理编码解析。
+    固定目的地推荐场景应传入写死的 adcode，避免额外 geocode 请求。
+    """
+    cache_key = (
+        f"weather:forecast:{_normalize_cache_text(adcode) or _normalize_cache_text(city)}"
+    )
     cached_value = get_cached_json(cache_key)
     if cached_value is not None:
-        logger.info("weather cache hit: city=%s", city)
+        logger.info("weather cache hit: city=%s adcode=%s", city, adcode)
         return cached_value
-    logger.info("weather cache miss: city=%s", city)
+    logger.info("weather cache miss: city=%s adcode=%s", city, adcode)
 
-    geocode = geocode_address(city, city=city)
-    city_code = geocode.get("adcode") if geocode is not None else city
+    city_code = (adcode or "").strip() or None
+    if city_code is None:
+        geocode = geocode_address(city, city=city)
+        city_code = geocode.get("adcode") if geocode is not None else None
 
     payload = _request_amap_weather(
         "/weather/weatherInfo",

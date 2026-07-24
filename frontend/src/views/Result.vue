@@ -1,3 +1,8 @@
+<script lang="ts">
+// 模块级集合：Result 被 v-if 销毁重建后仍保留，避免重复自动保存。
+const autoSavedTripIds = new Set<string>();
+</script>
+
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { message } from "ant-design-vue";
@@ -20,7 +25,6 @@ const emit = defineEmits<{
 }>();
 
 const editing = ref(false);
-const lastSavedTripId = ref("");
 const editScope = ref("day_1");
 const editInstruction = ref("这一天节奏更轻松一点，减少固定安排。");
 const weatherLoading = ref(false);
@@ -163,19 +167,19 @@ async function loadWeather() {
   finally { weatherLoading.value = false; }
 }
 
-async function autoSave(itinerary?: Itinerary | null, showSuccess = false) {
+async function autoSave(itinerary?: Itinerary | null, force = false) {
   const it = itinerary
     ? { ...itinerary, tips: itinerary.tips || [] }
     : buildVisibleItinerary();
-  if (!it) return;
+  if (!it?.trip_id) return;
+  if (!force && autoSavedTripIds.has(it.trip_id)) return;
+
   try {
     await saveTrip(it);
-    lastSavedTripId.value = it.trip_id;
-    if (showSuccess) {
-      message.success("行程已自动保存到历史。");
-    }
+    autoSavedTripIds.add(it.trip_id);
   } catch {
-    message.error("自动保存到历史失败。");
+    // 静默失败，避免切页时反复打扰；编辑场景由调用方再提示。
+    if (force) message.error("自动保存到历史失败。");
   }
 }
 
@@ -183,9 +187,8 @@ watch(() => props.itinerary?.destination, () => { void loadWeather(); }, { immed
 watch(() => props.itinerary?.trip_id, (tripId) => {
   const first = props.itinerary?.days[0];
   editScope.value = first ? `day_${first.day_index}` : "day_1";
-  if (tripId && tripId !== lastSavedTripId.value) {
-    void autoSave(props.itinerary, true);
-  }
+  // 每个 trip_id 仅静默保存一次；切到结果页不重复保存、不弹窗。
+  if (tripId) void autoSave(props.itinerary, false);
 }, { immediate: true });
 
 async function handleEdit() {
@@ -196,7 +199,7 @@ async function handleEdit() {
   try {
     const updated = await editTrip({ trip_id: props.itinerary.trip_id, current_itinerary: props.itinerary, user_instruction: instruction, edit_scope: editScope.value, preserve_constraints: ["保留预算结构", "保留目的地和旅行日期"] });
     emit("updated", updated);
-    await autoSave(updated, false);
+    await autoSave(updated, true);
     message.success("行程已智能调整，并已同步到历史。");
   } catch { message.error("智能调整失败。"); }
   finally { editing.value = false; }

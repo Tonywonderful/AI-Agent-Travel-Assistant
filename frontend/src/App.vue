@@ -98,6 +98,25 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 :global(:root) {
   color-scheme: light;
   font-synthesis: none;
+  --ui-scale: 1;
+}
+
+@media (min-width: 1900px) and (min-height: 900px) {
+  :global(:root) {
+    --ui-scale: 1.2;
+  }
+}
+
+@media (min-width: 2200px) and (min-height: 1100px) {
+  :global(:root) {
+    --ui-scale: 1.35;
+  }
+}
+
+@media (min-width: 2450px) and (min-height: 1200px) {
+  :global(:root) {
+    --ui-scale: 1.5;
+  }
 }
 
 :global(body) {
@@ -124,10 +143,10 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 .app-shell {
   min-height: 100vh;
   height: 100vh;
-  padding: 8px;
+  padding: calc(8px * var(--ui-scale));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: calc(12px * var(--ui-scale));
   background:
     radial-gradient(circle at 48% -10%, rgba(255, 255, 255, 0.96), transparent 35%),
     #f3f7fb;
@@ -136,14 +155,14 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 .nav-bar {
   position: relative;
   z-index: 20;
-  height: 64px;
-  flex: 0 0 64px;
+  height: calc(64px * var(--ui-scale));
+  flex: 0 0 calc(64px * var(--ui-scale));
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 calc(20px * var(--ui-scale));
   border: 1px solid rgba(226, 232, 240, 0.78);
-  border-radius: 18px;
+  border-radius: calc(18px * var(--ui-scale));
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 5px 16px rgba(30, 58, 95, 0.14);
 }
@@ -156,13 +175,13 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 }
 
 .brand {
-  gap: 13px;
-  min-width: 255px;
+  gap: calc(13px * var(--ui-scale));
+  min-width: calc(255px * var(--ui-scale));
 }
 
 .brand__logo {
-  width: 38px;
-  height: 38px;
+  width: calc(38px * var(--ui-scale));
+  height: calc(38px * var(--ui-scale));
   display: grid;
   place-items: center;
   color: #fff;
@@ -172,7 +191,7 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 }
 
 .brand__title {
-  font-size: 22px;
+  font-size: calc(22px * var(--ui-scale));
   line-height: 1;
   color: #0f1728;
   font-weight: 750;
@@ -188,17 +207,17 @@ function updateCurrentItinerary(itinerary: Itinerary) {
   transform: translateX(-50%);
   display: flex;
   align-items: stretch;
-  gap: 34px;
+  gap: calc(34px * var(--ui-scale));
 }
 
 .nav-tab {
   position: relative;
-  min-width: 76px;
-  padding: 0 10px;
+  min-width: calc(76px * var(--ui-scale));
+  padding: 0 calc(10px * var(--ui-scale));
   border: 0;
   background: transparent;
   color: #17233d;
-  font-size: 19px;
+  font-size: calc(19px * var(--ui-scale));
   font-weight: 600;
   cursor: pointer;
 }
@@ -206,10 +225,10 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 .nav-tab::after {
   content: "";
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 3px;
-  height: 4px;
+  left: calc(10px * var(--ui-scale));
+  right: calc(10px * var(--ui-scale));
+  bottom: calc(3px * var(--ui-scale));
+  height: calc(4px * var(--ui-scale));
   border-radius: 4px;
   background: transparent;
 }
@@ -225,7 +244,7 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 }
 
 .account-area {
-  gap: 20px;
+  gap: calc(20px * var(--ui-scale));
 }
 
 .icon-button,
@@ -237,22 +256,22 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 }
 
 .icon-button {
-  width: 36px;
-  height: 36px;
+  width: calc(36px * var(--ui-scale));
+  height: calc(36px * var(--ui-scale));
   display: grid;
   place-items: center;
   padding: 0;
 }
 
 .account {
-  gap: 11px;
+  gap: calc(11px * var(--ui-scale));
   padding: 0;
-  font-size: 15px;
+  font-size: calc(15px * var(--ui-scale));
 }
 
 .account__avatar {
-  width: 34px;
-  height: 34px;
+  width: calc(34px * var(--ui-scale));
+  height: calc(34px * var(--ui-scale));
   flex: 0 0 auto;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.8);
@@ -268,8 +287,8 @@ function updateCurrentItinerary(itinerary: Itinerary) {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(350px, 26.15vw, 402px);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) calc(402px * var(--ui-scale));
+  gap: calc(12px * var(--ui-scale));
 }
 
 .page-content,
@@ -287,7 +306,7 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 .assistant-column {
   overflow: hidden;
   border: 1px solid rgba(226, 232, 240, 0.82);
-  border-radius: 18px;
+  border-radius: calc(18px * var(--ui-scale));
   background: #fff;
   box-shadow: 0 4px 14px rgba(35, 65, 95, 0.11);
 }

@@ -61,7 +61,8 @@ const formState = reactive({
   endDate: formatDate(addDays(today, 11)),
   travelers: 2,
   travelDays: 5,
-  autoDays: true,
+  // 默认关闭：结束日期可自由选择；开启后改天数会同步结束日期。
+  autoDays: false,
   budgetMin: 3000,
   budgetMax: 8000,
   pace: "轻松",
@@ -75,7 +76,23 @@ const recommendations = ref<DestinationRecommendationItem[]>([]);
 const recommendationsLoading = ref(false);
 const isSubmitting = ref(false);
 const progress = ref(0);
+const startDateInput = ref<HTMLInputElement | null>(null);
+const endDateInput = ref<HTMLInputElement | null>(null);
 let progressTimer: ReturnType<typeof setInterval> | null = null;
+
+function openDatePicker(input: HTMLInputElement | null | undefined) {
+  if (!input || input.disabled) return;
+  try {
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+  } catch {
+    // showPicker 在非用户手势或浏览器限制下可能抛错，回退到 focus。
+  }
+  input.focus();
+  input.click();
+}
 
 const noteCount = computed(() => formState.notes.length);
 
@@ -91,8 +108,27 @@ function adjustTravelers(amount: number) {
 
 function adjustDays(amount: number) {
   formState.travelDays = Math.max(1, Math.min(30, formState.travelDays + amount));
+  // 天数步进始终回写结束日期，便于和日期区间保持一致。
+  formState.endDate = formatDate(addDays(formState.startDate, formState.travelDays - 1));
+}
+
+function onEndDatePicked() {
+  // 用户手动改结束日期后，退出“按天数锁结束日”的自动模式。
+  formState.autoDays = false;
+  if (formState.endDate < formState.startDate) {
+    formState.endDate = formState.startDate;
+  }
+  syncDaysFromDates();
+}
+
+function onStartDatePicked() {
+  if (formState.endDate < formState.startDate) {
+    formState.endDate = formState.startDate;
+  }
   if (formState.autoDays) {
     formState.endDate = formatDate(addDays(formState.startDate, formState.travelDays - 1));
+  } else {
+    syncDaysFromDates();
   }
 }
 
@@ -208,11 +244,18 @@ async function handleSubmit() {
   }
 }
 
-watch(() => formState.startDate, () => {
-  if (formState.autoDays) formState.endDate = formatDate(addDays(formState.startDate, formState.travelDays - 1));
-  else syncDaysFromDates();
+watch(() => formState.startDate, onStartDatePicked);
+watch(() => formState.endDate, () => {
+  if (formState.endDate < formState.startDate) {
+    formState.endDate = formState.startDate;
+  }
+  syncDaysFromDates();
 });
-watch(() => formState.endDate, syncDaysFromDates);
+watch(() => formState.autoDays, (enabled) => {
+  if (enabled) {
+    formState.endDate = formatDate(addDays(formState.startDate, formState.travelDays - 1));
+  }
+});
 
 onMounted(loadRecommendations);
 onBeforeUnmount(stopProgress);
@@ -246,10 +289,33 @@ onBeforeUnmount(stopProgress);
         <div class="field field--dates">
           <label>起止日期</label>
           <div class="control control--date-range">
-            <AppIcon name="calendar" :size="18" />
-            <input v-model="formState.startDate" type="date" />
+            <button
+              type="button"
+              class="date-icon-btn"
+              aria-label="选择开始日期"
+              @click="openDatePicker(startDateInput)"
+            >
+              <AppIcon name="calendar" :size="18" />
+            </button>
+            <input
+              ref="startDateInput"
+              v-model="formState.startDate"
+              type="date"
+              :min="formatDate(today)"
+              @click="openDatePicker(startDateInput)"
+              @keydown.enter.prevent="openDatePicker(startDateInput)"
+              @change="onStartDatePicked"
+            />
             <span>至</span>
-            <input v-model="formState.endDate" type="date" :min="formState.startDate" :disabled="formState.autoDays" />
+            <input
+              ref="endDateInput"
+              v-model="formState.endDate"
+              type="date"
+              :min="formState.startDate"
+              @click="openDatePicker(endDateInput)"
+              @keydown.enter.prevent="openDatePicker(endDateInput)"
+              @change="onEndDatePicked"
+            />
           </div>
         </div>
 
@@ -383,42 +449,43 @@ onBeforeUnmount(stopProgress);
 <style scoped>
 .home-page {
   display: grid;
-  gap: 14px;
+  gap: calc(14px * var(--ui-scale));
   min-width: 0;
 }
 
 .plan-card {
-  height: 433px;
-  padding: 15px 30px 12px;
+  height: calc(433px * var(--ui-scale));
+  padding: calc(15px * var(--ui-scale)) calc(30px * var(--ui-scale)) calc(12px * var(--ui-scale));
   overflow: hidden;
   border: 1px solid rgba(226, 232, 240, 0.78);
-  border-radius: 18px;
+  border-radius: calc(18px * var(--ui-scale));
   background: rgba(255, 255, 255, 0.95);
   box-shadow: 0 4px 14px rgba(35, 65, 95, 0.08);
 }
 
 .plan-title {
-  height: 42px;
+  height: calc(42px * var(--ui-scale));
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: calc(10px * var(--ui-scale));
 }
 
 .plan-title__icon {
   color: #0578f6;
+  transform: scale(var(--ui-scale));
 }
 
 .plan-title h2 {
   margin: 0;
   color: #111827;
-  font-size: 20px;
+  font-size: calc(20px * var(--ui-scale));
   font-weight: 750;
 }
 
 .primary-fields {
   display: grid;
   grid-template-columns: 1.12fr 1.18fr 0.88fr 0.88fr;
-  gap: 24px;
+  gap: calc(24px * var(--ui-scale));
 }
 
 .field,
@@ -430,22 +497,22 @@ onBeforeUnmount(stopProgress);
 .option-group > label,
 .group-label-line label {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: calc(6px * var(--ui-scale));
   color: #243148;
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-scale));
   line-height: 1;
   font-weight: 550;
 }
 
 .control {
-  height: 40px;
+  height: calc(40px * var(--ui-scale));
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 10px;
+  gap: calc(10px * var(--ui-scale));
+  padding: 0 calc(10px * var(--ui-scale));
   color: #4b5f7e;
   border: 1px solid #cbd8e7;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ui-scale));
   background: #fff;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -464,29 +531,50 @@ onBeforeUnmount(stopProgress);
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 13px;
-}
-
-.control input[type="date"]::-webkit-calendar-picker-indicator {
-  display: none;
+  font-size: calc(13px * var(--ui-scale));
 }
 
 .control--date-range {
-  gap: 8px;
+  gap: calc(8px * var(--ui-scale));
+  cursor: pointer;
 }
 
-.control--date-range input {
-  width: 88px;
+.date-icon-btn {
+  display: grid;
+  place-items: center;
+  width: calc(22px * var(--ui-scale));
+  height: calc(22px * var(--ui-scale));
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
 }
 
-.control--date-range input:disabled {
+.control--date-range input[type="date"] {
+  position: relative;
+  width: calc(104px * var(--ui-scale));
+  min-width: calc(104px * var(--ui-scale));
+  flex: 0 0 auto;
   color: #324667;
-  opacity: 1;
+  cursor: pointer;
+}
+
+/* 保留原生日历入口，但做成透明热区覆盖输入框，保证可点出下拉日历 */
+.control--date-range input[type="date"]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
 }
 
 .control--date-range > span {
   color: #50617b;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-scale));
 }
 
 .step-control {
@@ -500,19 +588,19 @@ onBeforeUnmount(stopProgress);
 }
 
 .step-control button {
-  width: 24px;
-  height: 24px;
+  width: calc(24px * var(--ui-scale));
+  height: calc(24px * var(--ui-scale));
   padding: 0;
   color: #586c88;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--ui-scale));
   background: #f3f6fa;
-  font-size: 18px;
-  line-height: 20px;
+  font-size: calc(18px * var(--ui-scale));
+  line-height: calc(20px * var(--ui-scale));
 }
 
 .step-control span {
   color: #344967;
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-scale));
 }
 
 .toggle-label {
@@ -522,11 +610,11 @@ onBeforeUnmount(stopProgress);
 }
 
 .switch {
-  width: 32px;
-  height: 18px;
-  padding: 2px;
+  width: calc(32px * var(--ui-scale));
+  height: calc(18px * var(--ui-scale));
+  padding: calc(2px * var(--ui-scale));
   border: 0;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ui-scale));
   background: #cbd5e1;
   cursor: pointer;
   transition: background 0.18s ease;
@@ -534,8 +622,8 @@ onBeforeUnmount(stopProgress);
 
 .switch span {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: calc(14px * var(--ui-scale));
+  height: calc(14px * var(--ui-scale));
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -547,54 +635,54 @@ onBeforeUnmount(stopProgress);
 }
 
 .switch.active span {
-  transform: translateX(14px);
+  transform: translateX(calc(14px * var(--ui-scale)));
 }
 
 .days-control {
   justify-content: space-between;
-  padding: 0 6px;
+  padding: 0 calc(6px * var(--ui-scale));
 }
 
 .days-control button {
-  width: 28px;
-  height: 28px;
+  width: calc(28px * var(--ui-scale));
+  height: calc(28px * var(--ui-scale));
   display: grid;
   place-items: center;
   color: #45607d;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--ui-scale));
   background: #f3f6fa;
-  font-size: 19px;
+  font-size: calc(19px * var(--ui-scale));
 }
 
 .days-control strong {
   color: #324667;
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-scale));
   font-weight: 500;
 }
 
 .option-row {
   display: grid;
-  gap: 26px;
+  gap: calc(26px * var(--ui-scale));
 }
 
 .option-row--first {
   grid-template-columns: 1fr 1.16fr;
-  margin-top: 17px;
+  margin-top: calc(17px * var(--ui-scale));
 }
 
 .option-row--second {
   grid-template-columns: 0.83fr 1.17fr;
-  margin-top: 17px;
+  margin-top: calc(17px * var(--ui-scale));
 }
 
 .option-row--third {
   grid-template-columns: 0.83fr 1.17fr;
-  margin-top: 16px;
+  margin-top: calc(16px * var(--ui-scale));
 }
 
 .segmented {
   display: grid;
-  gap: 10px;
+  gap: calc(10px * var(--ui-scale));
 }
 
 .segmented--three {
@@ -603,19 +691,19 @@ onBeforeUnmount(stopProgress);
 
 .segmented button,
 .chips button {
-  height: 40px;
+  height: calc(40px * var(--ui-scale));
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
-  padding: 0 10px;
+  gap: calc(9px * var(--ui-scale));
+  padding: 0 calc(10px * var(--ui-scale));
   color: #53617a;
   border: 1px solid #d5dee9;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ui-scale));
   background: #fff;
   cursor: pointer;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-scale));
   transition: all 0.15s ease;
 }
 
@@ -635,7 +723,7 @@ onBeforeUnmount(stopProgress);
 .segmented button span,
 .chips button span {
   color: inherit;
-  font-size: 17px;
+  font-size: calc(17px * var(--ui-scale));
   line-height: 1;
 }
 
@@ -643,7 +731,7 @@ onBeforeUnmount(stopProgress);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: calc(8px * var(--ui-scale));
 }
 
 .group-label-line label {
@@ -652,22 +740,22 @@ onBeforeUnmount(stopProgress);
 
 .group-label-line strong {
   color: #008b64;
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-scale));
   font-weight: 600;
 }
 
 .range-wrap {
   position: relative;
-  height: 12px;
-  margin: 0 8px;
+  height: calc(12px * var(--ui-scale));
+  margin: 0 calc(8px * var(--ui-scale));
   border-radius: 8px;
 }
 
 .range-wrap input {
   position: absolute;
-  inset: -6px 0 auto;
+  inset: calc(-6px * var(--ui-scale)) 0 auto;
   width: 100%;
-  height: 24px;
+  height: calc(24px * var(--ui-scale));
   margin: 0;
   appearance: none;
   pointer-events: none;
@@ -675,8 +763,8 @@ onBeforeUnmount(stopProgress);
 }
 
 .range-wrap input::-webkit-slider-thumb {
-  width: 18px;
-  height: 18px;
+  width: calc(18px * var(--ui-scale));
+  height: calc(18px * var(--ui-scale));
   appearance: none;
   pointer-events: auto;
   border: 3px solid #fff;
@@ -687,8 +775,8 @@ onBeforeUnmount(stopProgress);
 }
 
 .range-wrap input::-moz-range-thumb {
-  width: 13px;
-  height: 13px;
+  width: calc(13px * var(--ui-scale));
+  height: calc(13px * var(--ui-scale));
   pointer-events: auto;
   border: 3px solid #fff;
   border-radius: 50%;
@@ -699,46 +787,46 @@ onBeforeUnmount(stopProgress);
 .range-ticks {
   display: flex;
   justify-content: space-between;
-  margin-top: 5px;
+  margin-top: calc(5px * var(--ui-scale));
   color: #7789a5;
-  font-size: 10px;
+  font-size: calc(10px * var(--ui-scale));
 }
 
 .option-group > label small {
   color: #63738c;
-  font-size: 11px;
+  font-size: calc(11px * var(--ui-scale));
   font-weight: 400;
 }
 
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px 10px;
+  gap: calc(7px * var(--ui-scale)) calc(10px * var(--ui-scale));
 }
 
 .chips button {
-  height: 30px;
-  min-width: 92px;
-  gap: 6px;
-  padding: 0 12px;
-  border-radius: 10px;
-  font-size: 12px;
+  height: calc(30px * var(--ui-scale));
+  min-width: calc(92px * var(--ui-scale));
+  gap: calc(6px * var(--ui-scale));
+  padding: 0 calc(12px * var(--ui-scale));
+  border-radius: calc(10px * var(--ui-scale));
+  font-size: calc(12px * var(--ui-scale));
 }
 
 .chips button span {
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-scale));
 }
 
 .option-group--diet .chips button {
-  min-width: 70px;
+  min-width: calc(70px * var(--ui-scale));
 }
 
 .notes-control {
   position: relative;
-  height: 69px;
+  height: calc(69px * var(--ui-scale));
   overflow: hidden;
   border: 1px solid #cbd8e7;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ui-scale));
   background: #fff;
 }
 
@@ -750,51 +838,51 @@ onBeforeUnmount(stopProgress);
 .notes-control textarea {
   width: 100%;
   height: 100%;
-  padding: 11px 54px 10px 13px;
+  padding: calc(11px * var(--ui-scale)) calc(54px * var(--ui-scale)) calc(10px * var(--ui-scale)) calc(13px * var(--ui-scale));
   resize: none;
   color: #415473;
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-scale));
   line-height: 1.5;
 }
 
 .notes-control > span {
   position: absolute;
-  right: 8px;
-  bottom: 7px;
+  right: calc(8px * var(--ui-scale));
+  bottom: calc(7px * var(--ui-scale));
   color: #8998af;
-  font-size: 10px;
+  font-size: calc(10px * var(--ui-scale));
 }
 
 .action-card {
-  height: 123px;
+  height: calc(123px * var(--ui-scale));
   display: grid;
-  grid-template-columns: 330px minmax(0, 325px);
+  grid-template-columns: calc(330px * var(--ui-scale)) minmax(0, 1fr);
   align-items: center;
-  padding-left: 22px;
+  padding: 0 calc(22px * var(--ui-scale));
   overflow: hidden;
   border: 1px solid rgba(226, 232, 240, 0.78);
-  border-radius: 18px;
+  border-radius: calc(18px * var(--ui-scale));
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 4px 14px rgba(35, 65, 95, 0.08);
 }
 
 .start-button {
-  height: 98px;
+  height: calc(98px * var(--ui-scale));
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin-left: -1px;
+  gap: calc(12px * var(--ui-scale));
+  margin-left: calc(-1px * var(--ui-scale));
   color: #fff;
   border: 0;
-  border-radius: 44px 0 0 44px;
+  border-radius: calc(44px * var(--ui-scale)) 0 0 calc(44px * var(--ui-scale));
   background: linear-gradient(110deg, #0bc6b0 0%, #04b8d9 46%, #0878fb 100%);
   box-shadow: 0 6px 16px rgba(0, 153, 209, 0.26);
   cursor: pointer;
-  font-size: 23px;
+  font-size: calc(23px * var(--ui-scale));
   font-weight: 750;
 }
 
@@ -807,34 +895,34 @@ onBeforeUnmount(stopProgress);
 }
 
 .generation-status {
-  height: 98px;
+  height: calc(98px * var(--ui-scale));
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 0 25px 0 20px;
+  gap: calc(18px * var(--ui-scale));
+  padding: 0 calc(25px * var(--ui-scale)) 0 calc(20px * var(--ui-scale));
   border-top: 1px solid #bed9f6;
   border-right: 1px solid #bed9f6;
   border-bottom: 1px solid #bed9f6;
-  border-radius: 0 44px 44px 0;
+  border-radius: 0 calc(44px * var(--ui-scale)) calc(44px * var(--ui-scale)) 0;
   background: linear-gradient(100deg, rgba(248, 252, 255, 0.98), #fff);
 }
 
 .loader {
   position: relative;
-  width: 36px;
-  height: 36px;
+  width: calc(36px * var(--ui-scale));
+  height: calc(36px * var(--ui-scale));
   flex: 0 0 auto;
 }
 
 .loader i {
   position: absolute;
-  left: 16px;
-  top: 2px;
-  width: 4px;
-  height: 9px;
+  left: calc(16px * var(--ui-scale));
+  top: calc(2px * var(--ui-scale));
+  width: calc(4px * var(--ui-scale));
+  height: calc(9px * var(--ui-scale));
   border-radius: 3px;
   background: #9aaac0;
-  transform-origin: 2px 16px;
+  transform-origin: calc(2px * var(--ui-scale)) calc(16px * var(--ui-scale));
 }
 
 .loader i:nth-child(2) { transform: rotate(45deg); opacity: .85; }
@@ -851,29 +939,29 @@ onBeforeUnmount(stopProgress);
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: calc(6px * var(--ui-scale));
 }
 
 .generation-status__body strong {
   color: #16233b;
-  font-size: 15px;
+  font-size: calc(15px * var(--ui-scale));
 }
 
 .generation-status__body > span {
   color: #60718c;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-scale));
 }
 
 .progress-row {
   display: flex;
   align-items: center;
-  gap: 11px;
-  min-height: 15px;
+  gap: calc(11px * var(--ui-scale));
+  min-height: calc(15px * var(--ui-scale));
 }
 
 .progress-track {
   flex: 1;
-  height: 7px;
+  height: calc(7px * var(--ui-scale));
   overflow: hidden;
   border-radius: 5px;
   background: #e3edf9;
@@ -888,9 +976,9 @@ onBeforeUnmount(stopProgress);
 }
 
 .progress-row > span {
-  width: 30px;
+  width: calc(30px * var(--ui-scale));
   color: #4a6791;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-scale));
 }
 
 @keyframes spin {
