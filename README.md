@@ -1,4 +1,4 @@
-# 🗺️ 智旅云图
+# 🗺️ 旅游推荐助手
 
 > 融合大模型、RAG、本地攻略与高德地图能力的智能旅行规划系统
 
@@ -7,26 +7,6 @@
 相比只输出一段文本的 LLM Demo，这个项目更强调完整链路落地：从 **行程生成、攻略检索、地图信息补全、天气补充，到历史管理与文档导出**，尽量把 AI 能力组织成一个可交互、可保存、可展示的产品原型。
 
 ## 📝 最近更新
-
-- `2026-07-18`
-  - RAG：知识库扩展为北京、大理、成都、西安、厦门、三亚 6 个目的地；Chunk 写入 `destination` metadata，Chroma 向量检索、关键词 fallback、Rerank 与缓存均按目的地隔离，跨城市污染评估自动纳入北京。
-  - 数据质量：检索扩展词迁移到 `backend/data/retrieval_rules.json`；RAG 评估集更新为 18 条并与当前攻略内容对齐；新增离线一致性校验，能够发现失效规则词、fallback 候选和评估断言词。
-  - 失败降级：模型不可用或候选不足时，行程只展示从当前 RAG 上下文提取的景点、餐饮和住宿名称；没有真实候选就明确留空，不再生成“推荐景点 N”类模板实体。
-  - 开发体验：新增模型连通性检测脚本，Chat 与 Embedding 可分别诊断。
-- `2026-05-19`
-  - 工程观测：新增 token 消耗统计，覆盖 Query Rewrite、Query Embedding、qwen3-rerank 与 Planner 生成链路，并在后端终端输出分项与总量。
-  - 接口能力：`/trip/generate` 返回 `token_usage` 字段，`/trip/stats` 支持汇总已保存行程的 token 消耗。
-- `2026-05-07`
-  - RAG：完成 Cross-encoder Rerank（qwen3-rerank）+ 噪声预过滤，Top1 命中率 86.7%→93.3%，MRR 0.922→0.967。
-  - RAG：新增 Rerank 缓存，缓存命中后 Avg Latency 从 728ms 降至 425ms，降幅 41.6%。
-- `2026-05-06`
-  - RAG：完善评估指标体系，新增 MRR、Noise Rate、Latency、Cross-destination Pollution 四个量化指标。
-  - RAG：完成 LLM-based Query Rewrite，用 qwen-max 替代手写规则改写检索 query，Top1 命中率 80%→86.7%，MRR 0.889→0.922。
-- `2026-04-29`
-  - RAG：扩充知识库至 5 个目的地（大理/成都/西安/厦门/三亚），评估样例集扩充至 15 条，完成规则级 Rerank 多层降权与 Query Rewrite 目的地过滤，消除跨目的地污染。
-  - 地图前端：新增地图路线虚线箭头可视化、🚩 旗帜打卡标记与景点图片气泡窗口。
-- `2026-04-25`：完成第一轮 RAG 在线阶段优化，已接入轻量化 Query Rewrite、轻量 Rerank 与检索调试脚本。
-- `2026-04-15`：新增 Redis 缓存层，已覆盖天气查询、地图查询与 RAG 检索结果缓存。
 
 更多更新见：[CHANGELOG.md](./CHANGELOG.md)
 
@@ -47,12 +27,6 @@
 ### 保存与历史管理
 
 ![保存界面](./assets/showcase/03保存界面.jpeg)
-
-### PDF 导出效果
-
-![PDF 导出效果](./assets/showcase/04保存为pdf.png)
-
----
 
 ## ✨ 项目亮点
 
@@ -85,14 +59,14 @@
 
 ### 核心架构分层
 
-| 层级 | 关键文件 | 职责 |
-| :--- | :--- | :--- |
-| 前端 | `frontend/src/views/*.vue` | 规划页、结果页、历史页展示与交互 |
-| 接口层 | `backend/app/api/routes/` | trip、export、weather 路由 |
-| 服务层 | `backend/app/services/` | 行程编排、地图 enrich、天气、缓存、导出、存储 |
-| Agent 层 | `backend/app/agents/` | LLM 行程生成 + LLM-based Query Rewrite |
-| RAG 层 | `backend/app/rag/` | 向量入库、检索、Cross-encoder Rerank |
-| 数据层 | `backend/data/` | 本地 Markdown 攻略文档 |
+| 层级     | 关键文件                     | 职责                                          |
+| :------- | :--------------------------- | :-------------------------------------------- |
+| 前端     | `frontend/src/views/*.vue` | 规划页、结果页、历史页展示与交互              |
+| 接口层   | `backend/app/api/routes/`  | trip、export、weather 路由                    |
+| 服务层   | `backend/app/services/`    | 行程编排、地图 enrich、天气、缓存、导出、存储 |
+| Agent 层 | `backend/app/agents/`      | LLM 行程生成 + LLM-based Query Rewrite        |
+| RAG 层   | `backend/app/rag/`         | 向量入库、检索、Cross-encoder Rerank          |
+| 数据层   | `backend/data/`            | 本地 Markdown 攻略文档                        |
 
 ### 系统数据流
 
@@ -208,12 +182,13 @@ flowchart TD
 项目中将长期业务数据和短期高频查询结果分开处理：
 
 - **SQLite：负责持久化存储**
+
   - 实现位置：`backend/app/config.py`、`backend/app/models/db_models.py`、`backend/app/services/storage_service.py`
   - 使用场景：保存用户生成后的完整旅行方案，并支持历史列表、详情查询、删除和 Markdown/PDF 导出。
   - 存储方式：通过 SQLAlchemy 定义 `TripRecord` 表，核心字段包括 `trip_id`、`destination`、`summary`、`itinerary_json`、`created_at`、`updated_at`。
   - 设计原因：旅行方案属于用户主动保存的业务数据，需要长期保留、可查询、可删除；当前阶段采用 SQLite 轻量部署，适合个人项目和 Demo 场景。
-
 - **Redis：负责缓存加速**
+
   - 实现位置：`backend/app/services/cache_service.py`，并被 `weather_service.py`、`map_service.py`、`retriever.py` 复用。
   - 使用场景：缓存天气查询、高德地图地理编码/POI/路线结果、RAG 检索结果和 qwen3-rerank 重排序结果。
   - 存储方式：业务模块生成缓存 key，`cache_service.py` 统一加上 `trip_planner` 前缀，将 Python `dict/list` 序列化为 JSON 字符串写入 Redis，并设置 TTL 自动过期。
@@ -549,54 +524,23 @@ written_count: 9
 
 ## 📡 核心接口
 
-| 方法 | 路径 | 说明 |
-| :--- | :--- | :--- |
-| `GET` | `/` | 服务启动检查 |
-| `GET` | `/health` | 健康检查 |
-| `POST` | `/trip/generate` | 生成行程 |
-| `GET` | `/trip/stats` | 查询已保存行程的 token 消耗统计 |
-| `POST` | `/trip/edit` | 智能编辑行程 |
-| `POST` | `/trip/save` | 保存行程 |
-| `GET` | `/trip` | 历史列表 |
-| `GET` | `/trip/{trip_id}` | 行程详情 |
-| `DELETE` | `/trip/{trip_id}` | 删除行程 |
-| `GET` | `/export/{trip_id}/markdown` | 导出 Markdown |
-| `GET` | `/export/{trip_id}/pdf` | 导出 PDF |
-| `GET` | `/weather/forecast` | 查询天气 |
+| 方法       | 路径                           | 说明                            |
+| :--------- | :----------------------------- | :------------------------------ |
+| `GET`    | `/`                          | 服务启动检查                    |
+| `GET`    | `/health`                    | 健康检查                        |
+| `POST`   | `/trip/generate`             | 生成行程                        |
+| `GET`    | `/trip/stats`                | 查询已保存行程的 token 消耗统计 |
+| `POST`   | `/trip/edit`                 | 智能编辑行程                    |
+| `POST`   | `/trip/save`                 | 保存行程                        |
+| `GET`    | `/trip`                      | 历史列表                        |
+| `GET`    | `/trip/{trip_id}`            | 行程详情                        |
+| `DELETE` | `/trip/{trip_id}`            | 删除行程                        |
+| `GET`    | `/export/{trip_id}/markdown` | 导出 Markdown                   |
+| `GET`    | `/export/{trip_id}/pdf`      | 导出 PDF                        |
+| `GET`    | `/weather/forecast`          | 查询天气                        |
 
 ---
 
-## 🧪 测试与验证
-
-### 后端 API 测试
-
-```bash
-cd backend
-pytest tests/test_api_trip.py -q
-```
-
-如果服务器测试目录是 `backend/test`：
-
-```bash
-cd backend/test
-pytest test_api_trip.py -q
-```
-
-### 高德服务测试
-
-```bash
-cd backend/scripts
-python test_map_service.py
-```
-
-### 真实行程生成测试
-
-```bash
-cd backend/scripts
-python test_trip_service_real.py
-```
-
----
 
 ## 🔄 关键业务链路
 

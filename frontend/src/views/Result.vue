@@ -54,6 +54,45 @@ const budgetItems = computed(() => {
   ];
 });
 
+function tokenCount(value?: number | null): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+const tokenUsageSummary = computed(() => {
+  const usage = props.itinerary?.token_usage;
+  if (!usage) return null;
+
+  const rewrite = tokenCount(usage.rewrite_prompt_tokens) + tokenCount(usage.rewrite_completion_tokens);
+  const embedding = tokenCount(usage.embedding_prompt_tokens) + tokenCount(usage.embedding_completion_tokens);
+  const rerank = tokenCount(usage.rerank_prompt_tokens) + tokenCount(usage.rerank_completion_tokens);
+  const planner = tokenCount(usage.planner_prompt_tokens) + tokenCount(usage.planner_completion_tokens);
+  const prompt =
+    tokenCount(usage.rewrite_prompt_tokens) +
+    tokenCount(usage.embedding_prompt_tokens) +
+    tokenCount(usage.rerank_prompt_tokens) +
+    tokenCount(usage.planner_prompt_tokens);
+  const completion =
+    tokenCount(usage.rewrite_completion_tokens) +
+    tokenCount(usage.embedding_completion_tokens) +
+    tokenCount(usage.rerank_completion_tokens) +
+    tokenCount(usage.planner_completion_tokens);
+  const total = prompt + completion;
+
+  if (total <= 0) return null;
+
+  return {
+    total,
+    prompt,
+    completion,
+    items: [
+      { label: "查询改写", value: rewrite },
+      { label: "向量检索", value: embedding },
+      { label: "结果重排", value: rerank },
+      { label: "行程生成", value: planner },
+    ].filter((item) => item.value > 0),
+  };
+});
+
 const dayBudgetItems = computed(() => {
   if (!props.itinerary) return [];
   return props.itinerary.days.map((day) => {
@@ -191,6 +230,33 @@ async function handleEdit() {
         <div class="ios-budget-total">
           <span>预估总费用</span>
           <strong>¥{{ itinerary.estimated_budget.toFixed(0) }}</strong>
+        </div>
+      </div>
+
+      <!-- Token 消耗 -->
+      <div v-if="tokenUsageSummary" class="ios-card">
+        <div class="ios-card__header">模型消耗</div>
+        <div class="ios-budget-grid">
+          <div class="ios-budget-item">
+            <span class="ios-budget-item__label">输入 Token</span>
+            <span class="ios-budget-item__value">{{ tokenUsageSummary.prompt.toLocaleString() }}</span>
+          </div>
+          <div class="ios-budget-item">
+            <span class="ios-budget-item__label">输出 Token</span>
+            <span class="ios-budget-item__value">{{ tokenUsageSummary.completion.toLocaleString() }}</span>
+          </div>
+          <div
+            v-for="item in tokenUsageSummary.items"
+            :key="item.label"
+            class="ios-budget-item"
+          >
+            <span class="ios-budget-item__label">{{ item.label }}</span>
+            <span class="ios-budget-item__value">{{ item.value.toLocaleString() }}</span>
+          </div>
+        </div>
+        <div class="ios-token-total">
+          <span>合计 Token</span>
+          <strong>{{ tokenUsageSummary.total.toLocaleString() }}</strong>
         </div>
       </div>
 
@@ -425,6 +491,23 @@ async function handleEdit() {
 }
 
 .ios-budget-total strong { font-size: 22px; }
+
+.ios-token-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #F2F2F7;
+  color: #1C1C1E;
+  font-size: 15px;
+}
+
+.ios-token-total strong {
+  font-size: 22px;
+  color: #007AFF;
+}
 
 /* 天气 */
 .ios-weather-grid { display: grid; gap: 8px; }

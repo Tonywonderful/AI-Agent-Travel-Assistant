@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.tools.base import ToolResult
+from app.tools.knowledge_tools import tool_search_travel_guide
 from app.tools.map_tools import tool_estimate_route, tool_geocode_place, tool_search_poi
 from app.tools.weather_tools import tool_get_weather_forecast
 from app.tools.web_search_tools import tool_web_search
@@ -24,6 +25,7 @@ TOOL_HANDLERS: dict[str, ToolHandler] = {
     "search_poi": tool_search_poi,
     "estimate_route": tool_estimate_route,
     "web_search": tool_web_search,
+    "search_travel_guide": tool_search_travel_guide,
 }
 
 TOOL_SPECS: list[dict[str, Any]] = [
@@ -125,6 +127,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
             "景区预约/门票政策、开放时间变更、近期活动节庆、攻略避坑、交通公告等。"
             "不要用此工具查天气预报、精确驾车距离/时间、或结构化周边 POI 列表"
             "（那些应分别用 get_weather_forecast / estimate_route / search_poi）。"
+            "也不要用此工具替代本地攻略库 search_travel_guide。"
             "搜索词尽量具体，可带城市与年份。"
         ),
         "parameters": {
@@ -145,6 +148,36 @@ TOOL_SPECS: list[dict[str, Any]] = [
                 },
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "search_travel_guide",
+        "description": (
+            "检索项目本地旅行攻略知识库（策展过的玩法、避坑、节奏、景点/餐饮/住宿说明）。"
+            "适合：怎么玩、和行程匹配的建议、本地攻略口径、避坑与体验要点。"
+            "不适合：附近 POI 大全列表、精确坐标/距离、实时门票预约政策"
+            "（那些用 search_poi / estimate_route / web_search）。"
+            "必须能确定目的地城市：优先从对话上下文推断并传入 destination；"
+            "若用户问题里已含城市名也可只传 question。"
+            "城市未知时不要盲调；先向用户确认城市。"
+            "工具内部会改写检索词并固定返回少量高相关片段。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": (
+                        "用户的问题或检索意图，例如「双廊看日落有什么要注意的」"
+                        "「三天轻松怎么排」「古城附近住哪儿更合适」。"
+                    ),
+                },
+                "destination": {
+                    "type": "string",
+                    "description": "目的地城市，例如 大理、成都。可从当前行程/规划上下文推断。",
+                },
+            },
+            "required": ["question"],
         },
     },
 ]

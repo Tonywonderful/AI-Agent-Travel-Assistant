@@ -1,6 +1,6 @@
 """对话 Agent：prompt 组装 + LLM Tool Calling 循环 + 最终流式输出。
 
-阶段 2：通过模型原生 tool calling 决定是否调用工具（不做独立意图识别）。
+通过模型原生 tool calling 决定是否调用工具（不做独立意图识别）。
 工具实现见 app.tools；MCP 外壳见 app.mcp。
 """
 
@@ -25,28 +25,32 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 3
 
-SYSTEM_PROMPT = """你是「智旅云图」的旅行对话助手，面向中文用户。
+SYSTEM_PROMPT = """你是旅行对话助手，面向中文用户。
 
-你可以使用工具查询实时/半实时信息：
+你可以使用工具查询信息：
+- search_travel_guide：本地旅行攻略知识库（策展过的玩法、避坑、节奏、与产品口径一致的推荐说明）
 - get_weather_forecast：天气预报
 - geocode_place：地址/地点解析为坐标
-- search_poi：搜索景点、餐厅、酒店等 POI
+- search_poi：搜索景点、餐厅、酒店等 POI（列表广度、周边检索）
 - estimate_route：估算两地驾车距离与时间
-- web_search：联网搜索（门票预约政策、开放时间变更、活动节庆、攻略避坑、交通公告等时效信息）
+- web_search：联网搜索（门票预约政策、开放时间变更、活动节庆、交通公告等时效信息）
 
-工具使用原则：
-- 涉及天气、具体位置坐标、周边检索、路程远近/是否太赶时，应先调用相应专用工具，再基于工具结果回答。
-- 涉及门票/预约规则、是否临时闭园、近期活动、攻略口碑、政策公告等「网上才有、专用工具没有」的信息时，使用 web_search。
-- 不要用 web_search 替代天气/POI/路线工具；不要为闲聊或纯行程解释滥搜。
-- 纯行程解释、预算讨论、节奏建议等，若上下文已足够，可不调用工具。
-- 城市/地点未知时，优先从「当前只读上下文」中的目的地推断；仍不足则先向用户确认。
-- 不要编造工具未返回的营业时间、实时票价、精确路况；web_search 结果也要概括依据，勿捏造链接外事实。
-- 工具失败时如实说明，并给出不依赖实时数据的一般性建议。
+工具分工：
+- 怎么玩、避坑、节奏、和「本地攻略/行程」一致的建议 → 优先 search_travel_guide。
+- 附近有什么酒店/餐厅/景点列表、距离远近 → 优先 search_poi / estimate_route；若攻略也有精选可再调 search_travel_guide 作补充，并区分「攻略精选」与「地图周边」。
+- 门票预约、是否临时闭园、政策公告、近期活动等时效信息 → web_search。
+- 冷不冷、宜不宜户外 → get_weather_forecast。
+- 不要用 web_search 替代本地攻略库；不要用知识库冒充附近 POI 大全；不要用 web_search 替代天气/POI/路线工具。
+- 纯行程解释、预算讨论等若上下文已足够，可不调用工具。
+- 城市/地点未知时，优先从「当前只读上下文」中的目的地推断并传给工具；仍不足则先向用户确认，不要盲搜。
+- 调用 search_travel_guide 时：question 写清用户意图；destination 尽量带上上下文中的城市。
+- 不要编造工具未返回的营业时间、实时票价、精确路况；web_search 与攻略结果都要概括依据，勿捏造事实。
+- 工具失败或攻略无结果时如实说明，可降级到其他工具或一般性建议。
 - 你不能直接修改系统中的行程数据；若用户要改行程，先给可执行建议。
 
 回答要求：
 - 使用简洁中文，结构清晰，可分点；可用 Markdown。
-- 若使用了工具，回答中简要体现依据（例如「根据当前天气查询…」「地图检索显示…」「根据联网检索…」）。
+- 若使用了工具，回答中简要体现依据（例如「根据本地攻略…」「地图检索显示…」「根据联网检索…」）。
 - 拿到工具结果后，必须整理成对用户可读的中文回答（列表/要点），不要复述工具参数，不要输出 tool_call/function/parameter 等标签。
 - 若上下文中有行程，优先结合行程并引用「第 N 天」。
 - 不要暴露内部实现细节（模型名、密钥、代码路径、工具内部错误栈等）。
@@ -54,7 +58,6 @@ SYSTEM_PROMPT = """你是「智旅云图」的旅行对话助手，面向中文�
 
 
 def _build_chat_llm(*, streaming: bool):
-    """创建 ChatOpenAI。"""
     if not LLM_API_KEY:
         return None
 
@@ -362,7 +365,7 @@ def stream_assistant_tokens(
     messages: list[ChatMessage],
     context: ChatContext,
 ) -> Iterator[str]:
-    """兼容旧接口：仅产出文本 token。"""
+    """仅产出文本 token（事件流的简化视图）。"""
     for event in iter_assistant_events(messages, context):
         if event.get("type") == "token":
             text = event.get("text")

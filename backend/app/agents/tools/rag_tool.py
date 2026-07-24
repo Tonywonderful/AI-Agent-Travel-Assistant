@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 RETRIEVAL_RULES_PATH = BACKEND_DIR / "data" / "retrieval_rules.json"
 
 
-# rag_tool.py 自己不直接检索，
-# 它只负责把"旅行规划语义"转成"检索查询"。
 def _append_unique(parts: list[str], value: str) -> None:
     normalized = value.strip()
     if not normalized:
@@ -100,7 +98,6 @@ def _extract_note_keywords(special_notes: str | None, destination: str | None = 
 
 
 def _build_chat_llm():
-    """创建 ChatOpenAI 实例，用于 Query Rewrite。"""
     if not LLM_API_KEY:
         return None
     try:
@@ -237,7 +234,6 @@ def _build_destination_query(
     pace: str | None = None,
     special_notes: str | None = None,
 ) -> tuple[str, dict[str, int]]:
-    """兼容旧调用，内部转到公开的 query 构造函数。"""
     return build_destination_query(
         destination=destination,
         preferences=preferences,

@@ -251,18 +251,7 @@ def _rerank_with_dashscope(
 
 
 def _build_rerank_cache_key(query: str, chunks: list[dict[str, str]]) -> str:
-    """根据 query 和 chunk 内容生成 rerank 缓存 key。"""
-    """
-query = " 大理 自然风景 "，_normalize_cache_text 处理后得到 "大理 自然风景"。
-
-chunks = [{"source": "大理攻略.md", "title": "苍山"}, {"source": "大理攻略.md", "title": "洱海"}]
-
-content_fingerprint = "大理攻略.md:苍山|大理攻略.md:洱海"
-
-chunks_hash = hashlib.md5("大理攻略.md:苍山|大理攻略.md:洱海".encode()).hexdigest()[:12] → 假设得到 "a1b2c3d4e5f6"
-
-最终缓存键："rerank:大理 自然风景:a1b2c3d4e5f6"
-    """
+    """根据 query 与 chunk 指纹生成 rerank 缓存 key。"""
     normalized_query = _normalize_cache_text(query)
     content_fingerprint = "|".join(
         f"{c.get('source', '')}:{c.get('title', '')}" for c in chunks

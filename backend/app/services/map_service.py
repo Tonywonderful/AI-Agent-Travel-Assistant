@@ -20,13 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 def _ensure_amap_api_key() -> None:
-    """确保当前环境已经配置高德地图 Key。"""
     if not AMAP_API_KEY:
         raise RuntimeError("当前环境未配置 AMAP_API_KEY，无法调用高德地图服务。")
 
 
 def _build_client() -> httpx.Client:
-    """创建访问高德 HTTP API 的客户端。"""
     return httpx.Client(timeout=AMAP_TIMEOUT_SECONDS)
 
 
@@ -71,7 +69,6 @@ def _split_location(location: str | None) -> tuple[float | None, float | None]:
 
 
 def _normalize_cache_text(value: str | None) -> str:
-    """把缓存 key 里用到的文本做简单标准化。"""
     if value is None:
         return ""
     return value.strip().lower()

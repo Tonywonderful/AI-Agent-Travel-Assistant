@@ -1,21 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 
 import { streamChat } from "../services/chatApi";
 import type { Itinerary } from "../types";
 import type { ChatMessage, ChatUiMessage } from "../types/chat";
 import { buildChatContext, viewToChatPage } from "../utils/chatContext";
 import { renderMarkdown } from "../utils/markdown";
+import AppIcon from "./AppIcon.vue";
 
 const props = defineProps<{
   currentView: "home" | "result" | "history";
   itinerary: Itinerary | null;
 }>();
 
-const open = ref(false);
 const input = ref("");
 const messages = ref<ChatUiMessage[]>([]);
 const isStreaming = ref(false);
+const assistantEnabled = ref(true);
 const statusText = ref("");
 const errorText = ref("");
 
@@ -23,13 +24,6 @@ let abortController: AbortController | null = null;
 let idCounter = 0;
 
 const listRef = ref<HTMLElement | null>(null);
-const panelRef = ref<HTMLElement | null>(null);
-
-/** 面板左上角坐标；null 表示使用默认右下角定位 */
-const panelPos = ref<{ x: number; y: number } | null>(null);
-const isDragging = ref(false);
-let dragOffsetX = 0;
-let dragOffsetY = 0;
 
 const pageLabel = computed(() => {
   if (props.currentView === "home") return "规划页";
@@ -41,7 +35,7 @@ const contextHint = computed(() => {
   if (props.itinerary?.destination) {
     return `已携带行程：${props.itinerary.destination} · ${props.itinerary.days?.length || 0} 天`;
   }
-  return "当前无行程上下文，可先聊规划思路";
+  return "随时为你解答旅行问题";
 });
 
 const quickPrompts = computed(() => {
@@ -53,9 +47,9 @@ const quickPrompts = computed(() => {
     ];
   }
   return [
-    "大理最近天气怎么样？",
-    "搜索大理古城附近的餐厅",
-    "大理古城到双廊大概多远？",
+    "推荐适合情侣的旅行目的地",
+    "帮我规划一个 3 天的轻松行程",
+    "预算 5000 能去哪些地方？",
   ];
 });
 
@@ -112,7 +106,6 @@ async function sendMessage(raw?: string) {
     .filter((m) => m.id !== assistantMsg.id)
     .map((m) => ({ role: m.role, content: m.content }));
 
-  // 确保最后一条是刚发的 user
   if (!history.length || history[history.length - 1].role !== "user") {
     history.push({ role: "user", content: text });
   }
@@ -224,321 +217,157 @@ async function sendMessage(raw?: string) {
   }
 }
 
-function onFabClick() {
-  open.value = !open.value;
-}
-
-function clampPanelPosition(x: number, y: number): { x: number; y: number } {
-  const panel = panelRef.value;
-  const width = panel?.offsetWidth ?? 380;
-  const height = panel?.offsetHeight ?? 560;
-  const margin = 8;
-  const maxX = Math.max(margin, window.innerWidth - width - margin);
-  const maxY = Math.max(margin, window.innerHeight - height - margin);
-  return {
-    x: Math.min(Math.max(margin, x), maxX),
-    y: Math.min(Math.max(margin, y), maxY),
-  };
-}
-
-function onDragPointerMove(e: PointerEvent) {
-  if (!isDragging.value) return;
-  panelPos.value = clampPanelPosition(e.clientX - dragOffsetX, e.clientY - dragOffsetY);
-}
-
-function onDragPointerUp() {
-  if (!isDragging.value) return;
-  isDragging.value = false;
-  window.removeEventListener("pointermove", onDragPointerMove);
-  window.removeEventListener("pointerup", onDragPointerUp);
-}
-
-function onHeaderPointerDown(e: PointerEvent) {
-  const target = e.target as HTMLElement | null;
-  if (target?.closest("button")) return;
-
-  const panel = panelRef.value;
-  if (!panel) return;
-
-  const rect = panel.getBoundingClientRect();
-  // 首次拖动：从当前渲染位置接管坐标
-  if (!panelPos.value) {
-    panelPos.value = { x: rect.left, y: rect.top };
-  }
-
-  isDragging.value = true;
-  dragOffsetX = e.clientX - rect.left;
-  dragOffsetY = e.clientY - rect.top;
-  window.addEventListener("pointermove", onDragPointerMove);
-  window.addEventListener("pointerup", onDragPointerUp);
-  e.preventDefault();
-}
-
-function onWindowResize() {
-  if (!panelPos.value) return;
-  panelPos.value = clampPanelPosition(panelPos.value.x, panelPos.value.y);
-}
-
-const panelStyle = computed(() => {
-  if (!panelPos.value) return undefined;
-  return {
-    left: `${panelPos.value.x}px`,
-    top: `${panelPos.value.y}px`,
-    right: "auto",
-    bottom: "auto",
-  };
-});
-
-watch(open, (value) => {
-  if (value) void scrollToBottom();
-});
-
-window.addEventListener("resize", onWindowResize);
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", onWindowResize);
-  window.removeEventListener("pointermove", onDragPointerMove);
-  window.removeEventListener("pointerup", onDragPointerUp);
+  stopStreaming();
 });
 </script>
 
 <template>
-  <div class="chat-root">
-    <Transition name="chat-panel">
-      <section
-        v-if="open"
-        ref="panelRef"
-        class="chat-panel"
-        :class="{ 'chat-panel--dragging': isDragging, 'chat-panel--custom-pos': !!panelPos }"
-        :style="panelStyle"
-        aria-label="旅行 AI 助手"
+  <section class="chat-side" aria-label="旅行 AI 助手">
+    <header class="chat-side__header">
+      <div>
+        <div class="chat-side__title">旅行 AI 助手</div>
+        <div class="chat-side__meta">{{ contextHint }}</div>
+      </div>
+      <button
+        type="button"
+        :class="['assistant-switch', { active: assistantEnabled }]"
+        role="switch"
+        :aria-checked="assistantEnabled"
+        @click="assistantEnabled = !assistantEnabled"
+      ><span></span></button>
+    </header>
+
+    <section v-if="!messages.length" class="quick-section">
+      <h3>快捷提问</h3>
+      <button
+        v-for="(prompt, index) in quickPrompts"
+        :key="prompt"
+        type="button"
+        class="quick-chip"
+        :disabled="!assistantEnabled"
+        @click="sendMessage(prompt)"
       >
-        <header
-          class="chat-panel__header"
-          @pointerdown="onHeaderPointerDown"
-        >
-          <div>
-            <div class="chat-panel__title">旅行 AI 助手</div>
-            <div class="chat-panel__meta">
-              {{ pageLabel }} · {{ contextHint }}
-            </div>
-          </div>
-          <div class="chat-panel__header-actions">
-            <button type="button" class="ghost-btn" :disabled="isStreaming" @click="clearChat">
-              清空
-            </button>
-            <button type="button" class="ghost-btn" @click="open = false">关闭</button>
-          </div>
-        </header>
+        <span :class="`quick-chip__icon quick-chip__icon--${index + 1}`">
+          <AppIcon :name="index === 0 ? 'users' : index === 1 ? 'wallet' : 'map'" :size="21" />
+        </span>
+        {{ prompt }}
+      </button>
+    </section>
 
-        <div ref="listRef" class="chat-panel__messages">
-          <div v-if="!messages.length" class="chat-empty">
-            <p>流式对话 + 工具（天气 / 地图 / 路线 / 联网搜索）。</p>
-            <p>模型会在需要实时信息时自动调用工具；也可先聊规划思路。</p>
-            <div class="quick-list">
-              <button
-                v-for="prompt in quickPrompts"
-                :key="prompt"
-                type="button"
-                class="quick-chip"
-                @click="sendMessage(prompt)"
-              >
-                {{ prompt }}
-              </button>
-            </div>
-          </div>
-
-          <div
-            v-for="msg in messages"
-            :key="msg.id"
-            :class="['bubble', msg.role === 'user' ? 'bubble--user' : 'bubble--assistant', { 'bubble--error': msg.error }]"
-          >
-            <div class="bubble__role">{{ msg.role === "user" ? "我" : "助手" }}</div>
-            <div
-              v-if="msg.role === 'assistant' && msg.toolTraces?.length"
-              class="tool-traces"
-            >
-              <div
-                v-for="(trace, idx) in msg.toolTraces"
-                :key="`${msg.id}-tool-${idx}`"
-                class="tool-trace"
-                :class="`tool-trace--${trace.status}`"
-              >
-                <span class="tool-trace__name">{{ trace.name }}</span>
-                <span class="tool-trace__status">
-                  {{
-                    trace.status === "running"
-                      ? "调用中…"
-                      : trace.status === "ok"
-                        ? "完成"
-                        : "失败"
-                  }}
-                </span>
-                <div v-if="trace.summary" class="tool-trace__summary">{{ trace.summary }}</div>
-              </div>
-            </div>
-            <div
-              v-if="msg.role === 'assistant'"
-              class="bubble__content markdown-body"
-            >
-              <div v-html="renderMarkdown(msg.content)" />
-              <span v-if="msg.streaming" class="cursor">▍</span>
-            </div>
-            <div v-else class="bubble__content">
-              {{ msg.content }}
-            </div>
-          </div>
+    <div ref="listRef" class="chat-side__messages">
+      <div v-if="!messages.length" class="chat-empty">
+        <span class="bot-avatar"><AppIcon name="bot" :size="19" /></span>
+        <div class="chat-empty__bubble">
+          你好！我是你的旅行 AI 助手 ✨<br />
+          告诉我你的想法，我来帮你规划完美的旅程！
         </div>
+      </div>
 
-        <div v-if="errorText" class="chat-error">{{ errorText }}</div>
-        <div v-if="statusText" class="chat-status">{{ statusText }}</div>
-
-        <footer class="chat-panel__footer">
-          <textarea
-            v-model="input"
-            class="chat-input"
-            rows="2"
-            placeholder="问问行程、预算、节奏…（Enter 发送，Shift+Enter 换行）"
-            :disabled="isStreaming"
-            @keydown.enter.exact.prevent="sendMessage()"
-          />
-          <div class="chat-panel__footer-actions">
-            <button
-              v-if="isStreaming"
-              type="button"
-              class="btn btn--ghost"
-              @click="stopStreaming"
+      <div
+        v-for="msg in messages"
+        :key="msg.id"
+        :class="['message-row', msg.role === 'user' ? 'message-row--user' : 'message-row--assistant']"
+      >
+        <span v-if="msg.role === 'assistant'" class="bot-avatar"><AppIcon name="bot" :size="19" /></span>
+        <div :class="['bubble', msg.role === 'user' ? 'bubble--user' : 'bubble--assistant', { 'bubble--error': msg.error }]">
+          <div v-if="msg.role === 'assistant' && msg.toolTraces?.length" class="tool-traces">
+            <div
+              v-for="(trace, idx) in msg.toolTraces"
+              :key="`${msg.id}-tool-${idx}`"
+              class="tool-trace"
+              :class="`tool-trace--${trace.status}`"
             >
-              停止
-            </button>
-            <button
-              type="button"
-              class="btn btn--primary"
-              :disabled="isStreaming || !input.trim()"
-              @click="sendMessage()"
-            >
-              发送
-            </button>
+              <span class="tool-trace__name">{{ trace.name }}</span>
+              <span class="tool-trace__status">{{ trace.status === "running" ? "调用中…" : trace.status === "ok" ? "完成" : "失败" }}</span>
+              <div v-if="trace.summary" class="tool-trace__summary">{{ trace.summary }}</div>
+            </div>
           </div>
-        </footer>
-      </section>
-    </Transition>
+          <div v-if="msg.role === 'assistant'" class="bubble__content markdown-body">
+            <div v-html="renderMarkdown(msg.content)" />
+            <span v-if="msg.streaming" class="cursor">▍</span>
+          </div>
+          <div v-else class="bubble__content">{{ msg.content }}</div>
+        </div>
+      </div>
+    </div>
 
-    <button
-      type="button"
-      class="chat-fab"
-      :class="{ 'chat-fab--open': open }"
-      :aria-expanded="open"
-      aria-label="打开旅行 AI 助手"
-      @click="onFabClick"
-    >
-      <span v-if="!open">AI</span>
-      <span v-else>×</span>
-    </button>
-  </div>
+    <div v-if="errorText" class="chat-error">{{ errorText }}</div>
+    <div v-if="statusText" class="chat-status">{{ statusText }}</div>
+
+    <footer class="chat-side__footer">
+      <button type="button" class="clear-btn" :disabled="isStreaming || !messages.length" @click="clearChat">
+        <AppIcon name="trash" :size="15" /> 清空对话
+      </button>
+      <div class="chat-input-row">
+        <input
+          v-model="input"
+          class="chat-input"
+          type="text"
+          maxlength="200"
+          placeholder="输入你的问题…"
+          :disabled="isStreaming || !assistantEnabled"
+          @keydown.enter.exact.prevent="sendMessage()"
+        />
+        <span class="input-count">{{ input.length }}/200</span>
+        <button v-if="isStreaming" type="button" class="send-btn send-btn--stop" @click="stopStreaming">停</button>
+        <button v-else type="button" class="send-btn" :disabled="!input.trim() || !assistantEnabled" @click="sendMessage()">
+          <AppIcon name="send" :size="19" :stroke-width="2.1" />
+        </button>
+      </div>
+    </footer>
+  </section>
 </template>
 
 <style scoped>
-.chat-root {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  pointer-events: none;
-}
-
-.chat-fab,
-.chat-panel {
-  pointer-events: auto;
-}
-
-.chat-fab {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  width: 56px;
-  height: 56px;
-  border: none;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2f6bff, #5b8cff);
-  color: #fff;
-  font-size: 16px;
-  font-weight: 700;
-  box-shadow: 0 8px 24px rgba(47, 107, 255, 0.35);
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.chat-fab:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 28px rgba(47, 107, 255, 0.4);
-}
-
-.chat-fab:active {
-  transform: scale(0.96);
-}
-
-.chat-fab--open {
-  background: #1c1c1e;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-}
-
-.chat-panel {
-  position: fixed;
-  right: 20px;
-  bottom: 88px;
-  width: min(380px, calc(100vw - 32px));
-  height: min(560px, calc(100vh - 120px));
+.chat-side {
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.96);
-  border: 0.5px solid rgba(0, 0, 0, 0.08);
-  border-radius: 16px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.14);
-  overflow: hidden;
-  backdrop-filter: blur(12px);
+  height: 100%;
+  background: #ffffff;
 }
 
-.chat-panel--custom-pos {
-  right: auto;
-  bottom: auto;
-}
-
-.chat-panel--dragging {
-  user-select: none;
-  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.2);
-}
-
-.chat-panel__header {
+.chat-side__header {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 14px 10px;
-  border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
-  cursor: grab;
-  touch-action: none;
+  gap: 10px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
 }
 
-.chat-panel--dragging .chat-panel__header {
-  cursor: grabbing;
+.chat-side__header-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
 }
 
-.chat-panel__title {
+.chat-side__avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.chat-side__title {
   font-size: 15px;
   font-weight: 600;
   color: #1c1c1e;
 }
 
-.chat-panel__meta {
+.chat-side__meta {
   margin-top: 2px;
   font-size: 12px;
   color: #8e8e93;
   line-height: 1.4;
-  max-width: 240px;
-}
-
-.chat-panel__header-actions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
 }
 
 .ghost-btn {
@@ -549,6 +378,7 @@ onBeforeUnmount(() => {
   padding: 4px 8px;
   border-radius: 8px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .ghost-btn:hover:not(:disabled) {
@@ -561,46 +391,56 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-.chat-panel__messages {
+.chat-side__messages {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  background: #f7f7fa;
+  gap: 12px;
+  background: #fafbfc;
+  min-height: 0;
 }
 
 .chat-empty {
-  font-size: 13px;
-  color: #636366;
-  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.chat-empty p {
-  margin: 0 0 8px;
+.chat-empty__bubble {
+  align-self: flex-start;
+  max-width: 92%;
+  padding: 12px 14px;
+  border-radius: 14px 14px 14px 4px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  color: #3a3a3c;
+  font-size: 13px;
+  line-height: 1.55;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .quick-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 10px;
 }
 
 .quick-chip {
   text-align: left;
-  border: 0.5px solid rgba(47, 107, 255, 0.25);
+  border: 1px solid rgba(37, 99, 235, 0.18);
   background: #fff;
-  color: #2f6bff;
-  border-radius: 10px;
-  padding: 8px 10px;
+  color: #2563eb;
+  border-radius: 12px;
+  padding: 10px 12px;
   font-size: 12px;
   cursor: pointer;
+  transition: background 0.15s ease;
 }
 
 .quick-chip:hover {
-  background: rgba(47, 107, 255, 0.06);
+  background: rgba(37, 99, 235, 0.05);
 }
 
 .tool-traces {
@@ -615,8 +455,8 @@ onBeforeUnmount(() => {
   padding: 6px 8px;
   font-size: 11px;
   line-height: 1.4;
-  background: rgba(47, 107, 255, 0.06);
-  border: 0.5px solid rgba(47, 107, 255, 0.15);
+  background: rgba(37, 99, 235, 0.06);
+  border: 0.5px solid rgba(37, 99, 235, 0.15);
 }
 
 .tool-trace--running {
@@ -645,72 +485,28 @@ onBeforeUnmount(() => {
 }
 
 .bubble {
-  max-width: 92%;
-  padding: 8px 10px;
-  border-radius: 12px;
+  max-width: 90%;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .bubble--user {
   align-self: flex-end;
-  background: #2f6bff;
+  background: #2563eb;
   color: #fff;
+  border-radius: 14px 14px 4px 14px;
 }
 
 .bubble--assistant {
   align-self: flex-start;
+  border-radius: 14px 14px 14px 4px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .bubble--error {
   border: 0.5px solid rgba(255, 59, 48, 0.35);
-}
-
-.bubble__role {
-  font-size: 11px;
-  opacity: 0.7;
-  margin-bottom: 2px;
-}
-
-.tool-traces {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.tool-trace {
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 11px;
-  line-height: 1.4;
-  background: rgba(47, 107, 255, 0.06);
-  border: 0.5px solid rgba(47, 107, 255, 0.15);
-}
-
-.tool-trace--running {
-  border-color: rgba(255, 149, 0, 0.35);
-  background: rgba(255, 149, 0, 0.08);
-}
-
-.tool-trace--error {
-  border-color: rgba(255, 59, 48, 0.35);
-  background: rgba(255, 59, 48, 0.06);
-}
-
-.tool-trace__name {
-  font-weight: 600;
-  margin-right: 6px;
-}
-
-.tool-trace__status {
-  opacity: 0.75;
-}
-
-.tool-trace__summary {
-  margin-top: 3px;
-  opacity: 0.9;
-  word-break: break-word;
 }
 
 .bubble__content {
@@ -742,19 +538,6 @@ onBeforeUnmount(() => {
   color: #1c1c1e;
 }
 
-.markdown-body :deep(h1) {
-  font-size: 1.15em;
-}
-
-.markdown-body :deep(h2) {
-  font-size: 1.08em;
-}
-
-.markdown-body :deep(h3),
-.markdown-body :deep(h4) {
-  font-size: 1em;
-}
-
 .markdown-body :deep(p) {
   margin: 0.35em 0;
 }
@@ -763,31 +546,6 @@ onBeforeUnmount(() => {
 .markdown-body :deep(ol) {
   margin: 0.35em 0;
   padding-left: 1.25em;
-}
-
-.markdown-body :deep(li) {
-  margin: 0.2em 0;
-}
-
-.markdown-body :deep(li > p) {
-  margin: 0.15em 0;
-}
-
-.markdown-body :deep(strong) {
-  font-weight: 650;
-}
-
-.markdown-body :deep(hr) {
-  border: none;
-  border-top: 0.5px solid rgba(0, 0, 0, 0.12);
-  margin: 0.75em 0;
-}
-
-.markdown-body :deep(blockquote) {
-  margin: 0.45em 0;
-  padding: 0.15em 0 0.15em 0.75em;
-  border-left: 3px solid rgba(47, 107, 255, 0.35);
-  color: #636366;
 }
 
 .markdown-body :deep(code) {
@@ -812,12 +570,8 @@ onBeforeUnmount(() => {
 }
 
 .markdown-body :deep(a) {
-  color: #2f6bff;
+  color: #2563eb;
   text-decoration: none;
-}
-
-.markdown-body :deep(a:hover) {
-  text-decoration: underline;
 }
 
 .cursor {
@@ -833,93 +587,356 @@ onBeforeUnmount(() => {
 }
 
 .chat-error {
-  padding: 6px 14px 0;
+  padding: 6px 16px 0;
   color: #ff3b30;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .chat-status {
-  padding: 6px 14px 0;
+  padding: 6px 16px 0;
   color: #8e8e93;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
-.chat-panel__footer {
-  padding: 10px 12px 12px;
-  border-top: 0.5px solid rgba(0, 0, 0, 0.06);
+.chat-side__footer {
+  padding: 12px 14px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
   background: #fff;
+  flex-shrink: 0;
+}
+
+.chat-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .chat-input {
-  width: 100%;
-  resize: none;
-  border: 0.5px solid rgba(0, 0, 0, 0.1);
-  border-radius: 10px;
-  padding: 8px 10px;
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 20px;
+  padding: 0 14px;
   font-size: 13px;
   font-family: inherit;
   outline: none;
-  background: #fafafa;
+  background: #f5f6f8;
 }
 
 .chat-input:focus {
-  border-color: rgba(47, 107, 255, 0.45);
+  border-color: rgba(37, 99, 235, 0.45);
   background: #fff;
 }
 
-.chat-panel__footer-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.btn {
+.send-btn {
+  width: 40px;
+  height: 40px;
   border: none;
-  border-radius: 10px;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 500;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  font-size: 14px;
   cursor: pointer;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.btn:disabled {
+.send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.send-btn--stop {
+  background: #1c1c1e;
+  font-size: 12px;
+}
+</style>
+
+<style scoped>
+.chat-side {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: #172033;
+  background: #fff;
+}
+
+.chat-side__header {
+  height: 86px;
+  flex: 0 0 86px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 19px 16px 12px;
+  border: 0;
+}
+
+.chat-side__title {
+  color: #121827;
+  font-size: 19px;
+  line-height: 1.2;
+  font-weight: 750;
+}
+
+.chat-side__meta {
+  margin-top: 7px;
+  color: #687791;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.assistant-switch {
+  width: 51px;
+  height: 29px;
+  flex: 0 0 auto;
+  margin-top: 6px;
+  padding: 3px;
+  border: 0;
+  border-radius: 16px;
+  background: #cad5df;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.assistant-switch span {
+  display: block;
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(20, 50, 80, 0.3);
+  transition: transform 0.18s ease;
+}
+
+.assistant-switch.active {
+  background: #02b878;
+}
+
+.assistant-switch.active span {
+  transform: translateX(22px);
+}
+
+.quick-section {
+  flex: 0 0 210px;
+  padding: 6px 15px 12px;
+  border-bottom: 1px solid #e7edf4;
+}
+
+.quick-section h3 {
+  margin: 0 0 11px;
+  color: #293750;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.quick-chip {
+  width: 100%;
+  height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 12px;
+  padding: 0 15px;
+  text-align: left;
+  color: #26344d;
+  border: 1px solid #cdd9e7;
+  border-radius: 14px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.quick-chip:hover:not(:disabled) {
+  border-color: #78b8ff;
+  background: #f8fbff;
+}
+
+.quick-chip:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
-.btn--primary {
-  background: #2f6bff;
+.quick-chip__icon {
+  display: grid;
+  place-items: center;
+}
+
+.quick-chip__icon--1 { color: #08af70; }
+.quick-chip__icon--2 { color: #8358ef; }
+.quick-chip__icon--3 { color: #187bf5; }
+
+.chat-side__messages {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 15px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: #fff;
+  scrollbar-width: thin;
+  scrollbar-color: #d9e2ec transparent;
+}
+
+.chat-empty,
+.message-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.message-row--user {
+  justify-content: flex-end;
+}
+
+.bot-avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: #0878f5;
+  border: 1px solid #d9e5f2;
+  border-radius: 50%;
+  background: #edf5ff;
+}
+
+.chat-empty__bubble,
+.bubble {
+  max-width: calc(100% - 40px);
+  padding: 11px 14px;
+  color: #2d3b55;
+  border: 1px solid #dfe6ef;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(31, 55, 80, 0.05);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.chat-empty__bubble {
+  border-radius: 14px 14px 14px 4px;
+}
+
+.bubble--assistant {
+  align-self: auto;
+  border-radius: 14px 14px 14px 4px;
+}
+
+.bubble--user {
+  max-width: 82%;
   color: #fff;
+  border: 0;
+  border-radius: 14px 14px 4px 14px;
+  background: linear-gradient(135deg, #228bff, #0876f5);
+  box-shadow: 0 3px 8px rgba(0, 105, 235, 0.18);
 }
 
-.btn--ghost {
-  background: rgba(0, 0, 0, 0.05);
-  color: #1c1c1e;
+.bubble__content {
+  font-size: 13px;
+  line-height: 1.6;
 }
 
-.chat-panel-enter-active,
-.chat-panel-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+.tool-traces {
+  margin-bottom: 8px;
 }
 
-.chat-panel-enter-from,
-.chat-panel-leave-to {
-  opacity: 0;
-  transform: translateY(8px) scale(0.98);
+.chat-error,
+.chat-status {
+  padding: 4px 16px;
 }
 
-@media (max-width: 768px) {
-  .chat-fab {
-    right: 16px;
-    bottom: 16px;
-  }
+.chat-side__footer {
+  flex: 0 0 auto;
+  padding: 0 14px 17px;
+  border: 0;
+  background: #fff;
+}
 
-  .chat-panel {
-    right: 16px;
-    bottom: 80px;
-    width: min(100vw - 24px, 380px);
-    height: min(70vh, 560px);
-  }
+.clear-btn {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  padding: 0 13px;
+  color: #5c6e87;
+  border: 1px solid #d6e0eb;
+  border-radius: 16px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.clear-btn .app-icon {
+  color: #ff3c47;
+}
+
+.clear-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chat-input-row {
+  position: relative;
+  height: 60px;
+  gap: 0;
+  padding: 0 7px 0 13px;
+  border: 1px solid #d2ddea;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.chat-input {
+  height: 58px;
+  padding: 0 76px 0 0;
+  color: #33445f;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 13px;
+}
+
+.chat-input:focus {
+  border: 0;
+  background: transparent;
+}
+
+.input-count {
+  position: absolute;
+  right: 61px;
+  top: 23px;
+  color: #95a2b5;
+  font-size: 10px;
+}
+
+.send-btn {
+  width: 39px;
+  height: 39px;
+  flex: 0 0 39px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #fff;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #2a8cff, #126de9);
+  box-shadow: 0 4px 9px rgba(13, 105, 224, 0.22);
+}
+
+.send-btn:disabled {
+  opacity: 0.45;
+}
+
+.send-btn--stop {
+  font-size: 12px;
+  background: #29364b;
 }
 </style>

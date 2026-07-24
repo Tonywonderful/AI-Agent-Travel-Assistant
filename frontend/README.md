@@ -119,17 +119,6 @@ http://你的服务器地址:8000/docs
 - 这个 key 是否是高德 JavaScript API key
 - itinerary 里是否已经有 `latitude` / `longitude`
 
-### 导出 PDF 打开空白页
-
-正常情况下后端应该看到：
-
-```text
-POST /trip/save
-GET /export/{trip_id}/pdf
-```
-
-如果只看到 `POST /trip/save`，说明前端没有跳转到导出地址，先确认前端代码已经更新并重启。
-
 ### `npm run dev` 提示找不到 `package.json`
 
 说明当前目录错了。前端命令必须在 `frontend/` 目录执行：

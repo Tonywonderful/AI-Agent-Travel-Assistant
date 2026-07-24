@@ -80,6 +80,17 @@ export interface BudgetBreakdown {
   total: number;
 }
 
+export interface TokenUsage {
+  rewrite_prompt_tokens?: number;
+  rewrite_completion_tokens?: number;
+  embedding_prompt_tokens?: number;
+  embedding_completion_tokens?: number;
+  planner_prompt_tokens?: number;
+  planner_completion_tokens?: number;
+  rerank_prompt_tokens?: number;
+  rerank_completion_tokens?: number;
+}
+
 export interface Itinerary {
   trip_id: string;
   destination: string;
@@ -89,6 +100,21 @@ export interface Itinerary {
   budget_breakdown: BudgetBreakdown;
   tips: string[];
   source_notes: string[];
+  token_usage?: TokenUsage | null;
+}
+
+export interface TripTokenStatsItem {
+  trip_id: string;
+  destination: string;
+  token_usage: TokenUsage;
+}
+
+export interface TokenStatsResponse {
+  trip_count: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  items: TripTokenStatsItem[];
 }
 
 export interface TripSaveResponse {
@@ -133,4 +159,25 @@ export interface WeatherForecastResponse {
   adcode?: string | null;
   report_time?: string | null;
   days: WeatherForecastDay[];
+}
+
+export interface DestinationRecommendationItem {
+  city: string;
+  city_key: string;
+  tagline: string;
+  suggested_days: number;
+  default_preferences: string[];
+  default_pace?: string | null;
+  default_budget?: number | null;
+  image_path: string;
+  weather_score: number;
+  weather_label: string;
+  weather_available: boolean;
+  forecast_days: WeatherForecastDay[];
+}
+
+export interface HotDestinationRecommendationResponse {
+  items: DestinationRecommendationItem[];
+  source: string;
+  forecast_days: number;
 }

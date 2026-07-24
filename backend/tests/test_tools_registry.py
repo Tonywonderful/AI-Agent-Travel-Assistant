@@ -11,6 +11,7 @@ def test_list_tools_includes_web_search():
         "search_poi",
         "estimate_route",
         "web_search",
+        "search_travel_guide",
     }
 
 

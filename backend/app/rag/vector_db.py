@@ -213,7 +213,6 @@ class OllamaEmbeddings:
 
 
 def _build_embeddings():
-    """创建 embedding 模型实例。"""
     if EMBEDDING_PROVIDER == "ollama":
         print(
             f"[embedding] provider=ollama model={EMBEDDING_MODEL} url={OLLAMA_EMBED_URL}"
@@ -323,7 +322,6 @@ def _embed_query_with_usage(query: str) -> tuple[list[float] | None, dict[str, i
 
 
 def _get_chroma_collection():
-    """获取 Chroma collection。"""
     try:
         import chromadb
     except ImportError:
@@ -611,7 +609,7 @@ def search_guide_chunks_with_usage(
 def search_guide_chunks(
     query: str, top_k: int = RAG_TOP_K, destination: str | None = None
 ) -> list[dict[str, str]]:
-    """兼容旧调用：只返回检索片段，不返回 token usage。"""
+    """只返回检索片段（不含 token usage）。"""
     chunks, _ = search_guide_chunks_with_usage(
         query=query, top_k=top_k, destination=destination
     )

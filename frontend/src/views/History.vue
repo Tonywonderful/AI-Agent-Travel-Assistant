@@ -2,8 +2,8 @@
 import { message } from "ant-design-vue";
 import { onMounted, ref, watch } from "vue";
 
-import { deleteTrip, getTripDetail, listTrips } from "../services/api";
-import type { Itinerary, TripSummaryItem } from "../types";
+import { deleteTrip, fetchTokenStats, getTripDetail, listTrips } from "../services/api";
+import type { Itinerary, TokenStatsResponse, TripSummaryItem } from "../types";
 
 const props = defineProps<{
   active: boolean;
@@ -16,12 +16,17 @@ const emit = defineEmits<{
 const loading = ref(false);
 const items = ref<TripSummaryItem[]>([]);
 const deletingTripId = ref("");
+const tokenStats = ref<TokenStatsResponse | null>(null);
 
 async function loadTrips() {
   loading.value = true;
   try {
-    const response = await listTrips();
-    items.value = response.items;
+    const [listResponse, statsResponse] = await Promise.all([
+      listTrips(),
+      fetchTokenStats().catch(() => null),
+    ]);
+    items.value = listResponse.items;
+    tokenStats.value = statsResponse;
   } catch (error) {
     console.error(error);
     message.error("历史列表加载失败。");
@@ -49,6 +54,7 @@ async function removeTrip(tripId: string) {
   try {
     await deleteTrip(tripId);
     items.value = items.value.filter((item) => item.trip_id !== tripId);
+    tokenStats.value = await fetchTokenStats().catch(() => tokenStats.value);
     message.success("行程已删除。");
   } catch (error) {
     console.error(error);
@@ -76,6 +82,28 @@ watch(() => props.active, (active) => {
         <p class="history-header__desc">已保存到数据库的行程记录</p>
       </div>
       <button class="ios-btn ios-btn--primary ios-btn--sm" @click="loadTrips">刷新</button>
+    </div>
+
+    <div v-if="tokenStats" class="ios-card token-stats">
+      <div class="token-stats__title">已保存行程 Token 统计</div>
+      <div class="token-stats__grid">
+        <div class="token-stats__item">
+          <span class="token-stats__label">行程数</span>
+          <strong>{{ tokenStats.trip_count }}</strong>
+        </div>
+        <div class="token-stats__item">
+          <span class="token-stats__label">输入</span>
+          <strong>{{ tokenStats.total_prompt_tokens.toLocaleString() }}</strong>
+        </div>
+        <div class="token-stats__item">
+          <span class="token-stats__label">输出</span>
+          <strong>{{ tokenStats.total_completion_tokens.toLocaleString() }}</strong>
+        </div>
+        <div class="token-stats__item">
+          <span class="token-stats__label">合计</span>
+          <strong>{{ tokenStats.total_tokens.toLocaleString() }}</strong>
+        </div>
+      </div>
     </div>
 
     <!-- 状态 -->
@@ -111,6 +139,37 @@ watch(() => props.active, (active) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.token-stats__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1C1C1E;
+  margin-bottom: 12px;
+}
+
+.token-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.token-stats__item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #F2F2F7;
+}
+
+.token-stats__label {
+  font-size: 12px;
+  color: #8E8E93;
+}
+
+.token-stats__item strong {
+  font-size: 18px;
+  color: #007AFF;
 }
 
 .history-header__title {
@@ -209,6 +268,10 @@ watch(() => props.active, (active) => {
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .token-stats__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

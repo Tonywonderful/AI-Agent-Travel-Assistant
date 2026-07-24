@@ -97,7 +97,6 @@ def chat_health() -> dict:
     return {
         "status": "ok",
         "module": "chat",
-        "phase": "2",
         "tools": list_tool_names(),
     }
 

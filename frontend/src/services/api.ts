@@ -1,7 +1,9 @@
 import axios from "axios";
 
 import type {
+  HotDestinationRecommendationResponse,
   Itinerary,
+  TokenStatsResponse,
   TripDetailResponse,
   TripEditPayload,
   TripListResponse,
@@ -59,12 +61,16 @@ export async function fetchWeatherForecast(city: string): Promise<WeatherForecas
   return response.data;
 }
 
-export function getMarkdownExportUrl(tripId: string): string {
-  return `${API_BASE_URL}/export/${encodeURIComponent(tripId)}/markdown`;
+export async function fetchHotRecommendations(): Promise<HotDestinationRecommendationResponse> {
+  const response = await api.get<HotDestinationRecommendationResponse>("/recommendations/hot", {
+    timeout: 20000,
+  });
+  return response.data;
 }
 
-export function getPdfExportUrl(tripId: string): string {
-  return `${API_BASE_URL}/export/${encodeURIComponent(tripId)}/pdf`;
+export async function fetchTokenStats(): Promise<TokenStatsResponse> {
+  const response = await api.get<TokenStatsResponse>("/trip/stats");
+  return response.data;
 }
 
 export default api;

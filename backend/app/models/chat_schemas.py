@@ -1,7 +1,4 @@
-"""阶段 1 对话助手请求模型。
-
-与行程 schemas 解耦，后续 Phase 2 增加 tool 事件时只扩展本文件与 chat 链路。
-"""
+"""对话助手请求模型（与行程 schemas 解耦）。"""
 
 from __future__ import annotations
 
@@ -22,7 +19,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatItineraryContext(BaseModel):
-    """注入给助手的行程摘要（只读，阶段 1 不提供写工具）。"""
+    """注入给助手的行程摘要（只读）。"""
 
     trip_id: str | None = Field(default=None, description="行程 ID")
     destination: str | None = Field(default=None, description="目的地")
@@ -51,7 +48,7 @@ class ChatPlanningContext(BaseModel):
 
 
 class ChatContext(BaseModel):
-    """前端注入的只读上下文，阶段 1 无工具调用。"""
+    """前端注入的只读业务上下文。"""
 
     page: ChatPage = Field(default="planning", description="当前页面")
     itinerary: ChatItineraryContext | None = Field(
@@ -64,7 +61,7 @@ class ChatContext(BaseModel):
     )
     extra: dict[str, Any] = Field(
         default_factory=dict,
-        description="预留扩展字段，阶段 2 可放 tool 开关等",
+        description="预留扩展字段",
     )
 
 

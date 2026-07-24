@@ -1,4 +1,4 @@
-/** 阶段 1 对话类型；与行程 types 解耦，便于单独检查与扩展。 */
+/** 对话类型；与行程 types 解耦，便于单独检查与扩展。 */
 
 export type ChatRole = "user" | "assistant" | "system";
 export type ChatPage = "planning" | "result" | "history";
@@ -66,7 +66,6 @@ export interface ChatSseHandlers {
   onToken?: (text: string) => void;
   onError?: (message: string) => void;
   onDone?: (ok: boolean) => void;
-  /** 阶段 2 预留 */
   onToolStart?: (payload: Record<string, unknown>) => void;
   onToolResult?: (payload: Record<string, unknown>) => void;
 }

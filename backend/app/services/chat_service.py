@@ -59,7 +59,7 @@ def iter_chat_events(request: ChatStreamRequest) -> Iterator[dict[str, Any]]:
 
 
 def iter_chat_token_stream(request: ChatStreamRequest) -> Iterator[str]:
-    """兼容旧接口：只产出文本。"""
+    """只产出文本 token。"""
     for event in iter_chat_events(request):
         if event.get("type") == "token" and event.get("text"):
             yield str(event["text"])

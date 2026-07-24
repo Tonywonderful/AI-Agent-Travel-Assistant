@@ -39,6 +39,7 @@ def build_mcp_server():
             "未安装 mcp 包。请执行: pip install mcp"
         ) from exc
 
+    from app.tools.knowledge_tools import tool_search_travel_guide
     from app.tools.map_tools import (
         tool_estimate_route,
         tool_geocode_place,
@@ -48,10 +49,10 @@ def build_mcp_server():
     from app.tools.web_search_tools import tool_web_search
 
     mcp = FastMCP(
-        name="zhilv-yuntu-travel-tools",
+        name="travel-tools",
         instructions=(
-            "智旅云图旅行工具：天气、地理编码、POI 搜索、路线估算、联网搜索。"
-            "底层复用项目 weather_service / map_service / Exa MCP。"
+            "旅行工具：本地攻略检索、天气、地理编码、POI 搜索、路线估算、联网搜索。"
+            "底层复用项目 RAG / weather_service / map_service / Exa MCP。"
         ),
     )
 
@@ -114,6 +115,21 @@ def build_mcp_server():
                 query=query,
                 num_results=num_results,
                 search_type=search_type,
+            )
+        )
+
+    @mcp.tool(
+        name="search_travel_guide",
+        description=(
+            "检索本地旅行攻略知识库。参数 question 必填；destination 可选（建议传入）。"
+            "内部固定返回少量高相关片段。"
+        ),
+    )
+    def search_travel_guide(question: str, destination: str = "") -> str:
+        return _result_to_text(
+            tool_search_travel_guide(
+                question=question,
+                destination=destination or None,
             )
         )
 

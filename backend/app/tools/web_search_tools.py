@@ -113,7 +113,7 @@ def _call_exa_web_search(
     headers = {
         "Accept": "application/json, text/event-stream",
         "Content-Type": "application/json",
-        "User-Agent": "zhilv-yuntu/web_search",
+        "User-Agent": "trip-planner/web_search",
     }
 
     with httpx.Client(timeout=EXA_SEARCH_TIMEOUT_SECONDS) as client:

@@ -127,7 +127,6 @@ def collect_trip_context(
 
 
 def _build_chat_llm():
-    """创建通用 ChatOpenAI 实例。"""
     if not LLM_API_KEY:
         return None
 

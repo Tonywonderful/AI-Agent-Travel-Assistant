@@ -11,7 +11,6 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.api.main import app  # noqa: E402
-import app.api.routes.export as export_route  # noqa: E402
 import app.services.trip_service as trip_service  # noqa: E402
 
 client = TestClient(app)
@@ -182,55 +181,6 @@ def test_list_trips_returns_saved_trip_summaries() -> None:
     assert "items" in data
     assert isinstance(data["items"], list)
     assert any(item["trip_id"] == generated_itinerary["trip_id"] for item in data["items"])
-
-
-def test_export_trip_markdown_returns_markdown_text() -> None:
-    """测试 GET /export/{trip_id}/markdown 可以导出 Markdown 文本。"""
-    generated_response = client.post("/trip/generate", json=build_generate_payload())
-    generated_itinerary = generated_response.json()
-
-    client.post(
-        "/trip/save",
-        json={
-            "trip_id": generated_itinerary["trip_id"],
-            "itinerary": generated_itinerary,
-            "user_id": "user_001",
-        },
-    )
-
-    response = client.get(f"/export/{generated_itinerary['trip_id']}/markdown")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/markdown")
-    assert generated_itinerary["destination"] in response.text
-    assert generated_itinerary["summary"] in response.text
-
-
-def test_export_trip_pdf_returns_pdf_bytes(monkeypatch) -> None:
-    """测试 GET /export/{trip_id}/pdf 可以导出 PDF。"""
-    generated_response = client.post("/trip/generate", json=build_generate_payload())
-    generated_itinerary = generated_response.json()
-
-    client.post(
-        "/trip/save",
-        json={
-            "trip_id": generated_itinerary["trip_id"],
-            "itinerary": generated_itinerary,
-            "user_id": "user_001",
-        },
-    )
-
-    monkeypatch.setattr(
-        export_route,
-        "itinerary_to_pdf_bytes",
-        lambda trip_detail: b"%PDF-1.4\n%mock pdf\n",
-    )
-
-    response = client.get(f"/export/{generated_itinerary['trip_id']}/pdf")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("application/pdf")
-    assert response.content.startswith(b"%PDF")
 
 
 def test_generate_trip_response_includes_rag_context() -> None:

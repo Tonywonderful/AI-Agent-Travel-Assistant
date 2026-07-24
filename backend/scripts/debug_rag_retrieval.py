@@ -24,7 +24,7 @@ def _parse_preferences(raw_value: str | None) -> list[str]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="调试智旅云图 RAG 在线检索结果。"
+        description="调试 RAG 在线检索结果。"
     )
     parser.add_argument("--destination", required=True, help="目的地，例如：大理")
     parser.add_argument(
