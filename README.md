@@ -55,142 +55,19 @@
 
 ### 核心架构分层
 
-| 层级       | 关键文件                                      | 职责                                                          |
-| :--------- | :-------------------------------------------- | :------------------------------------------------------------ |
-| 前端       | `frontend/src/views/`、`components/`、`services/` | 规划页、结果页、历史页；地图 / 对话 / 推荐组件与 API 封装 |
-| 接口层     | `backend/app/api/routes/`                     | trip、weather、chat、recommendations 路由                     |
-| 服务层     | `backend/app/services/`                       | 行程编排、对话、推荐、地图 enrich、天气、缓存、存储           |
-| Agent 层   | `backend/app/agents/`                         | 行程生成 Agent、对话 Agent（tool calling + SSE）、Query Rewrite |
-| Tools / MCP | `backend/app/tools/`、`backend/app/mcp/`     | 天气 / 地图 / 攻略 / 联网搜索工具注册与执行；FastMCP 对外暴露 |
-| RAG 层     | `backend/app/rag/`                            | 向量入库、检索、Rerank、知识库同步与校验                      |
-| 数据层     | `backend/data/`、SQLite、Redis、ChromaDB      | 本地攻略文档、行程持久化、缓存、向量索引                      |
+| 层级        | 关键文件                                                | 职责                                                            |
+| :---------- | :------------------------------------------------------ | :-------------------------------------------------------------- |
+| 前端        | `frontend/src/views/`、`components/`、`services/` | 规划页、结果页、历史页；地图 / 对话 / 推荐组件与 API 封装       |
+| 接口层      | `backend/app/api/routes/`                             | trip、weather、chat、recommendations 路由                       |
+| 服务层      | `backend/app/services/`                               | 行程编排、对话、推荐、地图 enrich、天气、缓存、存储             |
+| Agent 层    | `backend/app/agents/`                                 | 行程生成 Agent、对话 Agent（tool calling + SSE）、Query Rewrite |
+| Tools / MCP | `backend/app/tools/`、`backend/app/mcp/`            | 天气 / 地图 / 攻略 / 联网搜索工具注册与执行；FastMCP 对外暴露   |
+| RAG 层      | `backend/app/rag/`                                    | 向量入库、检索、Rerank、知识库同步与校验                        |
+| 数据层      | `backend/data/`、SQLite、Redis、ChromaDB              | 本地攻略文档、行程持久化、缓存、向量索引                        |
 
 ### 系统数据流
 
 ```mermaid
-flowchart TD
-    Client(("浏览器"))
-
-    %% ------- Frontend -------
-    subgraph Frontend["Frontend"]
-        Vue["Vue 页面"]
-        Api["api.ts / chatApi.ts"]
-    end
-    class Frontend frontendBg;
-
-    %% ------- Backend -------
-    subgraph Backend["Backend"]
-        Main["FastAPI main.py"]
-
-        subgraph Routes["Routes"]
-            Trip["trip.py"]
-            Weather["weather.py"]
-            Chat["chat.py"]
-            Recs["recommendations.py"]
-        end
-
-        subgraph Services["Services"]
-            TripSvc["trip_service.py"]
-            ChatSvc["chat_service.py"]
-            RecSvc["recommendation_service.py"]
-            MapSvc["map_service.py"]
-            WeatherSvc["weather_service.py"]
-            StorageSvc["storage_service.py"]
-            CacheSvc["cache_service.py"]
-        end
-
-        subgraph Agent["Agent"]
-            Planner["trip_planner_agent.py"]
-            ChatAgent["chat_agent.py"]
-            RagTool["rag_tool.py"]
-        end
-
-        subgraph Tools["Tools / MCP"]
-            Registry["registry.py"]
-            McpSrv["mcp/server.py"]
-        end
-
-        subgraph RAG["RAG"]
-            Retriever["retriever.py"]
-            VectorDB["vector_db.py"]
-            ChromaDB[("ChromaDB")]
-        end
-
-        Schemas["schemas.py"]
-        DBModels["db_models.py"]
-        Redis[("Redis")]
-        SQLite[("SQLite")]
-    end
-    class Backend backendBg;
-
-    %% ------- 主流程（实线） -------
-    Client --> Vue --> Api --> Main
-
-    Main --> Trip
-    Main --> Weather
-    Main --> Chat
-    Main --> Recs
-
-    Trip --> TripSvc
-    Trip --> Schemas
-    Weather --> WeatherSvc
-    Chat --> ChatSvc
-    Recs --> RecSvc
-
-    TripSvc --> Planner
-    TripSvc --> MapSvc
-    TripSvc --> WeatherSvc
-    TripSvc --> StorageSvc
-    TripSvc --> CacheSvc
-
-    ChatSvc --> ChatAgent
-    ChatAgent --> Registry
-    Registry --> MapSvc
-    Registry --> WeatherSvc
-    Registry --> Retriever
-    McpSrv --> Registry
-
-    RecSvc --> WeatherSvc
-
-    Planner --> RagTool
-    RagTool --> Retriever
-    Retriever --> VectorDB
-    VectorDB --> ChromaDB
-    Retriever --> CacheSvc
-
-    CacheSvc --> Redis
-    StorageSvc --> DBModels
-    DBModels --> SQLite
-
-    %% ------- 返回路径（虚线） -------
-    TripSvc -.-> Api
-    WeatherSvc -.-> Api
-    ChatSvc -.-> Api
-    RecSvc -.-> Api
-
-    %% ------- Colors -------
-    classDef frontend fill:#eef2ff,stroke:#818cf8,color:#111;
-    classDef backend fill:#fefce8,stroke:#facc15,color:#111;
-    classDef routes fill:#f0fdfa,stroke:#2dd4bf,color:#111;
-    classDef services fill:#f5f3ff,stroke:#a78bfa,color:#111;
-    classDef agent fill:#fff1f2,stroke:#fb7185,color:#111;
-    classDef tools fill:#fdf4ff,stroke:#e879f9,color:#111;
-    classDef rag fill:#ecfeff,stroke:#22d3ee,color:#111;
-    classDef data fill:#f0fdf4,stroke:#4ade80,color:#111;
-    classDef storage fill:#fff7ed,stroke:#fb923c,color:#111;
-
-    classDef frontendBg fill:#eef2ff,stroke:#818cf8,stroke-width:2px,color:#111;
-    classDef backendBg fill:#fffbea,stroke:#facc15,stroke-width:2px,color:#111;
-
-    class Client,Vue,Api frontend;
-    class Main backend;
-    class Trip,Weather,Chat,Recs routes;
-    class TripSvc,ChatSvc,RecSvc,MapSvc,WeatherSvc,StorageSvc,CacheSvc services;
-    class Planner,ChatAgent,RagTool agent;
-    class Registry,McpSrv tools;
-    class Retriever,VectorDB,ChromaDB rag;
-    class Schemas,DBModels data;
-    class Redis,SQLite storage;
 ```
 
 数据流路径：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图 / 天气服务补全展示信息 → 前端展示地图、天气、预算和每日行程；对话助手经统一工具层按需查询天气、地图、攻略与联网结果；用户可保存、编辑与查看历史行程。
@@ -215,69 +92,6 @@ flowchart TD
 简言之：**SQLite 存“用户要留下来的行程数据”，Redis 存“短时间内可复用的中间查询结果”。**
 
 ### RAG 检索流程
-
-```mermaid
-%%{init: {"layout": "elk"}}%%
-flowchart TD
-    %% ------- Offline -------
-    subgraph Offline
-        Guides[("data 攻略文档")]
-        Ingest["ingest_data.py"]
-        Embed["text-embedding-v4"]
-        DB[("ChromaDB")]
-
-        Guides --> Ingest
-        Ingest --> Embed
-        Embed --> DB
-    end
-
-    %% ------- Online -------
-    subgraph Online
-        Input("用户输入 目的地 偏好 节奏 备注")
-        QR{"Query Rewrite"}
-        LLM_QR["LLM-based qwen-max"]
-        Rule_QR["规则级 fallback"]
-        Cache{"RAG 缓存命中?"}
-        Vector["ChromaDB 向量召回"]
-        Noise["噪声预过滤"]
-        Rerank{"Cross-encoder Rerank"}
-        DS["qwen3-rerank"]
-        Rule_RR["规则级 fallback"]
-        SetCache["写入 Redis 缓存"]
-        Output("返回 top-k 片段给 LLM")
-
-        Input --> QR
-        QR -->|优先| LLM_QR
-        QR -->|fallback| Rule_QR
-        LLM_QR --> Cache
-        Rule_QR --> Cache
-        Cache -->|命中| Output
-        Cache -->|未命中| Vector
-        Vector --> Noise
-        Noise --> Rerank
-        Rerank -->|优先| DS
-        Rerank -->|fallback| Rule_RR
-        DS --> SetCache
-        Rule_RR --> SetCache
-        SetCache --> Output
-    end
-
-    DB --> Vector
-
-    %% ------- Color definitions -------
-    classDef offline fill:#fefce8,stroke:#facc15;
-    classDef online_input fill:#eef2ff,stroke:#818cf8;
-    classDef online_logic fill:#f0fdfa,stroke:#2dd4bf;
-    classDef retrieve fill:#fdf4ff,stroke:#e879f9;
-    classDef rerank fill:#fff1f2,stroke:#fb7185;
-    classDef output fill:#f0fdf4,stroke:#4ade80;
-
-    class Guides,Ingest,Embed,DB offline;
-    class Input online_input;
-    class QR,LLM_QR,Rule_QR,Cache,Vector,Noise online_logic;
-    class Rerank,DS,Rule_RR rerank;
-    class SetCache,Output output;
-```
 
 **离线阶段**
 
@@ -347,7 +161,7 @@ AI Agent Travel Assistant/
 │   │   │   ├── document_registry.py      # 知识库文档清单与内容哈希
 │   │   │   ├── knowledge_poller.py       # 本地攻略变更检测与增量同步
 │   │   │   └── knowledge_validation.py   # 攻略、规则与评估配置一致性校验
-│   │   ├── tools/          
+│   │   ├── tools/      
 │   │   │   ├── base.py                   # ToolResult 统一返回结构
 │   │   │   ├── registry.py               # 工具注册表、规格与执行入口
 │   │   │   ├── knowledge_tools.py        # 本地攻略检索工具
@@ -461,133 +275,3 @@ npm run dev
 ### 显式编排工作流
 
 项目采用显式编排（而非 Agent 自主决策）的方式组织业务流程，每个步骤由 `trip_service.py` 按固定顺序调用，适合当前业务确定性强、步骤可预期的场景。
-
-```mermaid
-flowchart TD
-    User(("用户"))
-    FE["Frontend"]
-    Route["trip.py 路由层"]
-    TripSvc["trip_service.py 主编排"]
-
-    subgraph 编排步骤
-        Step1["① RAG 检索"]
-        Step2["② LLM 行程生成"]
-        Step3["③ 地图信息补全"]
-        Step4["④ 天气查询"]
-        Step5["⑤ 预算拆分"]
-    end
-
-    RAG["rag_tool.py + retriever.py"]
-    LLM["trip_planner_agent.py qwen-max"]
-    Map["map_service.py 高德地图"]
-    Weather["weather_service.py 高德天气"]
-    Result["返回 Itinerary"]
-
-    User --> FE --> Route --> TripSvc
-    TripSvc --> Step1 --> RAG
-    RAG --> Step2 --> LLM
-    LLM --> Step3 --> Map
-    Map --> Step4 --> Weather
-    Weather --> Step5 --> Result
-    Result -.-> FE -.-> User
-
-    classDef user fill:#eef2ff,stroke:#818cf8,color:#111;
-    classDef route fill:#f0fdfa,stroke:#2dd4bf,color:#111;
-    classDef svc fill:#fffbea,stroke:#facc15,color:#111;
-    classDef step fill:#fdf4ff,stroke:#e879f9,color:#111;
-    classDef ext fill:#fff1f2,stroke:#fb7185,color:#111;
-    classDef out fill:#f0fdf4,stroke:#4ade80,color:#111;
-
-    class User,FE user;
-    class Route route;
-    class TripSvc svc;
-    class Step1,Step2,Step3,Step4,Step5 step;
-    class RAG,LLM,Map,Weather ext;
-    class Result out;
-```
-
-### 行程生成
-
-```text
-POST /trip/generate
-  -> trip.py（路由层）
-    -> trip_service.py（主编排）
-      -> ① rag_tool.py
-           Query Rewrite（LLM-based / 规则 fallback）
-           -> retriever.py
-               RAG 缓存检查
-               -> ChromaDB 向量召回
-               -> 噪声预过滤
-               -> Cross-encoder Rerank（缓存 -> API -> 规则 fallback）
-      -> ② trip_planner_agent.py
-           组装 Prompt（用户输入 + RAG 上下文）
-           -> qwen-max 生成结构化行程
-           -> Pydantic 校验输出
-      -> ③ map_service.py（逐景点）
-           地理编码 -> POI 搜索 -> 路线估算 -> 图片补充
-           （每步都有 Redis 缓存）
-      -> ④ weather_service.py
-           天气预报查询（Redis 缓存）
-      -> ⑤ 预算拆分计算
-      -> ⑥ 记录 token_usage（Query Rewrite / Query Embedding / Rerank / Planner / Total）
-      -> 返回 Itinerary
-```
-
-### 智能编辑
-
-```text
-POST /trip/edit
-  -> trip.py（路由层）
-    -> trip_service.py（主编排）
-      -> ① 定位目标 DayPlan（根据 edit_scope 解析 day_index）
-      -> ② trip_planner_agent.py
-           generate_day_edit_draft（LLM 生成单日编辑）
-           -> 失败则 fallback 到规则编辑（关键词匹配）
-      -> ③ 替换目标 DayPlan（theme / spots / meals / notes）
-      -> ④ map_service.py 重新 enrich（清除旧坐标，重新查询）
-      -> ⑤ 更新 tips 和 source_notes
-      -> 返回更新后的 Itinerary
-```
-
-### 保存与历史
-
-```text
-POST /trip/save
-  -> storage_service.py -> SQLite 持久化
-
-GET /trip
-  -> storage_service.py -> 历史列表
-
-GET /trip/{trip_id}
-  -> storage_service.py -> 行程详情
-
-DELETE /trip/{trip_id}
-  -> storage_service.py -> 删除记录
-```
-
-### 对话助手
-
-```text
-POST /chat/stream（SSE）
-  -> chat.py（路由层）
-    -> chat_service.py
-      -> chat_agent.py
-           携带页面 / 行程只读上下文
-           -> 模型原生 tool calling
-           -> tools/registry.py 按需执行
-                天气 / 地理编码 / POI / 路线 / 本地攻略 / 联网搜索
-           -> 流式返回文本与工具调用事件
-```
-
-### 热门目的地推荐
-
-```text
-GET /recommendations/hot
-  -> recommendations.py
-    -> recommendation_service.py
-         固定 6 城封面与 adcode
-         -> weather_service.py 有界并发拉近几日天气
-         -> 按出行适宜度排序后返回
-```
-
----
