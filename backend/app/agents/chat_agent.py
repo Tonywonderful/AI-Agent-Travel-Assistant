@@ -1,6 +1,6 @@
 """对话 Agent：prompt 组装 + LLM Tool Calling 循环 + 最终流式输出。
 
-通过模型原生 tool calling 决定是否调用工具（不做独立意图识别）。
+通过模型原生 tool calling 决定是否调用工具。
 工具实现见 app.tools；MCP 外壳见 app.mcp。
 """
 

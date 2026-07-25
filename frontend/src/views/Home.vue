@@ -61,8 +61,6 @@ const formState = reactive({
   endDate: formatDate(addDays(today, 11)),
   travelers: 2,
   travelDays: 5,
-  // 默认关闭：结束日期可自由选择；开启后改天数会同步结束日期。
-  autoDays: false,
   budgetMin: 3000,
   budgetMax: 8000,
   pace: "轻松",
@@ -113,8 +111,6 @@ function adjustDays(amount: number) {
 }
 
 function onEndDatePicked() {
-  // 用户手动改结束日期后，退出“按天数锁结束日”的自动模式。
-  formState.autoDays = false;
   if (formState.endDate < formState.startDate) {
     formState.endDate = formState.startDate;
   }
@@ -125,11 +121,7 @@ function onStartDatePicked() {
   if (formState.endDate < formState.startDate) {
     formState.endDate = formState.startDate;
   }
-  if (formState.autoDays) {
-    formState.endDate = formatDate(addDays(formState.startDate, formState.travelDays - 1));
-  } else {
-    syncDaysFromDates();
-  }
+  syncDaysFromDates();
 }
 
 function normalizeBudget(changed: "min" | "max") {
@@ -251,11 +243,6 @@ watch(() => formState.endDate, () => {
   }
   syncDaysFromDates();
 });
-watch(() => formState.autoDays, (enabled) => {
-  if (enabled) {
-    formState.endDate = formatDate(addDays(formState.startDate, formState.travelDays - 1));
-  }
-});
 
 onMounted(loadRecommendations);
 onBeforeUnmount(stopProgress);
@@ -330,16 +317,7 @@ onBeforeUnmount(stopProgress);
         </div>
 
         <div class="field field--days">
-          <label class="toggle-label">
-            <span>自动天数（含出行日）</span>
-            <button
-              type="button"
-              :class="['switch', { active: formState.autoDays }]"
-              role="switch"
-              :aria-checked="formState.autoDays"
-              @click="formState.autoDays = !formState.autoDays"
-            ><span></span></button>
-          </label>
+          <label>天数（含出行日）</label>
           <div class="control days-control">
             <button type="button" aria-label="减少天数" @click="adjustDays(-1)">−</button>
             <strong>{{ formState.travelDays }} 天</strong>
@@ -430,7 +408,7 @@ onBeforeUnmount(stopProgress);
         <span>{{ isSubmitting ? "正在规划" : "开始规划" }}</span>
       </button>
       <div class="generation-status">
-        <span :class="['loader', { active: isSubmitting }]">
+        <span v-if="isSubmitting" class="loader active">
           <i v-for="n in 8" :key="n"></i>
         </span>
         <div class="generation-status__body">
@@ -601,41 +579,6 @@ onBeforeUnmount(stopProgress);
 .step-control span {
   color: #344967;
   font-size: calc(14px * var(--ui-scale));
-}
-
-.toggle-label {
-  display: flex !important;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.switch {
-  width: calc(32px * var(--ui-scale));
-  height: calc(18px * var(--ui-scale));
-  padding: calc(2px * var(--ui-scale));
-  border: 0;
-  border-radius: calc(10px * var(--ui-scale));
-  background: #cbd5e1;
-  cursor: pointer;
-  transition: background 0.18s ease;
-}
-
-.switch span {
-  display: block;
-  width: calc(14px * var(--ui-scale));
-  height: calc(14px * var(--ui-scale));
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: transform 0.18s ease;
-}
-
-.switch.active {
-  background: #08b87c;
-}
-
-.switch.active span {
-  transform: translateX(calc(14px * var(--ui-scale)));
 }
 
 .days-control {
@@ -912,6 +855,7 @@ onBeforeUnmount(stopProgress);
   width: calc(36px * var(--ui-scale));
   height: calc(36px * var(--ui-scale));
   flex: 0 0 auto;
+  animation: spin 1s steps(8) infinite;
 }
 
 .loader i {
@@ -932,7 +876,6 @@ onBeforeUnmount(stopProgress);
 .loader i:nth-child(6) { transform: rotate(225deg); opacity: .36; }
 .loader i:nth-child(7) { transform: rotate(270deg); opacity: .25; }
 .loader i:nth-child(8) { transform: rotate(315deg); opacity: .16; }
-.loader.active { animation: spin 1s steps(8) infinite; }
 
 .generation-status__body {
   flex: 1;

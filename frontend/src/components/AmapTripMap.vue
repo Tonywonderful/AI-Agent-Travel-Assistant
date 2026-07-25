@@ -15,9 +15,14 @@ interface TripMapPoint {
   description: string;
 }
 
-const props = defineProps<{
-  points: TripMapPoint[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    points: TripMapPoint[];
+    /** 父级是否可见；从 display:none 恢复时需要 resize */
+    active?: boolean;
+  }>(),
+  { active: true }
+);
 
 declare global {
   interface Window {
@@ -243,6 +248,22 @@ async function initMap() {
   }
 }
 
+function refreshMapLayout() {
+  if (!mapInstance.value || !props.active) return;
+  // v-show 隐藏时容器尺寸为 0，恢复可见后需 resize + 重新 fitView
+  mapInstance.value.resize?.();
+  if (markerList.value.length > 0) {
+    if (markerList.value.length === 1 && validPoints.value[0]) {
+      mapInstance.value.setZoomAndCenter(13, [
+        validPoints.value[0].longitude as number,
+        validPoints.value[0].latitude as number,
+      ]);
+    } else {
+      mapInstance.value.setFitView(markerList.value, false, [60, 60, 60, 60]);
+    }
+  }
+}
+
 onMounted(() => {
   void initMap();
 });
@@ -252,6 +273,18 @@ watch(validPoints, () => {
     renderMarkers();
   }
 });
+
+watch(
+  () => props.active,
+  (active) => {
+    if (active) {
+      // 下一帧再 resize，等 v-show 把 display 恢复
+      requestAnimationFrame(() => {
+        refreshMapLayout();
+      });
+    }
+  }
+);
 
 onBeforeUnmount(() => {
   clearOverlays();

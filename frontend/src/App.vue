@@ -1,30 +1,60 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 
 import AppIcon from "./components/AppIcon.vue";
 import FloatingChatAssistant from "./components/FloatingChatAssistant.vue";
 import type { Itinerary } from "./types";
+import {
+  loadCurrentView,
+  loadLatestItinerary,
+  saveCurrentView,
+  saveLatestItinerary,
+  type AppView,
+} from "./utils/clientCache";
 import History from "./views/History.vue";
 import Home from "./views/Home.vue";
 import Result from "./views/Result.vue";
 
-const currentView = ref<"home" | "result" | "history">("home");
-const latestItinerary = ref<Itinerary | null>(null);
+const restoredItinerary = loadLatestItinerary();
+const restoredView = loadCurrentView();
+
+function resolveInitialView(): AppView {
+  if (restoredView === "result" && restoredItinerary) return "result";
+  if (restoredView === "history" || restoredView === "home") return restoredView;
+  // 有缓存行程但上次不在结果页时，仍回到规划页；结果页按需挂载
+  return "home";
+}
+
+const latestItinerary = ref<Itinerary | null>(restoredItinerary);
+const currentView = ref<AppView>(resolveInitialView());
+// 结果/行程页一旦挂载就保活（v-show），避免切换时销毁重建
+const resultMounted = ref(currentView.value === "result");
+const historyMounted = ref(currentView.value === "history");
+
+function showResult(itinerary: Itinerary) {
+  latestItinerary.value = itinerary;
+  saveLatestItinerary(itinerary);
+  resultMounted.value = true;
+  currentView.value = "result";
+}
 
 function handleGenerated(itinerary: Itinerary) {
-  latestItinerary.value = itinerary;
-  currentView.value = "result";
+  showResult(itinerary);
 }
 
 function openTrip(itinerary: Itinerary) {
-  latestItinerary.value = itinerary;
-  currentView.value = "result";
+  showResult(itinerary);
 }
 
 function updateCurrentItinerary(itinerary: Itinerary) {
-  latestItinerary.value = itinerary;
-  currentView.value = "result";
+  showResult(itinerary);
 }
+
+watch(currentView, (view) => {
+  if (view === "result") resultMounted.value = true;
+  if (view === "history") historyMounted.value = true;
+  saveCurrentView(view);
+});
 </script>
 
 <template>
@@ -52,7 +82,7 @@ function updateCurrentItinerary(itinerary: Itinerary) {
           :class="['nav-tab', { 'nav-tab--active': currentView === 'history' }]"
           @click="currentView = 'history'"
         >
-          历史
+          我的行程
         </button>
       </nav>
 
@@ -68,27 +98,30 @@ function updateCurrentItinerary(itinerary: Itinerary) {
       </div>
     </header>
 
-    <div class="app-body">
+    <div :class="['app-body', { 'app-body--wide': currentView !== 'home' }]">
       <main class="page-content">
         <Home v-if="currentView === 'home'" @generated="handleGenerated" />
+        <!-- 保活：隐藏时不销毁，避免结果↔行程切换时重复请求与闪加载 -->
+        <History
+          v-if="historyMounted"
+          v-show="currentView === 'history'"
+          :active="currentView === 'history'"
+          @open-trip="openTrip"
+        />
+        <!-- 保活：隐藏时不销毁，避免地图实例与天气状态丢失 -->
         <Result
-          v-else-if="currentView === 'result'"
+          v-if="resultMounted"
+          v-show="currentView === 'result'"
+          :active="currentView === 'result'"
           :itinerary="latestItinerary"
           @back-home="currentView = 'home'"
           @updated="updateCurrentItinerary"
         />
-        <History
-          v-else
-          :active="currentView === 'history'"
-          @open-trip="openTrip"
-        />
       </main>
 
-      <aside class="assistant-column">
-        <FloatingChatAssistant
-          :current-view="currentView"
-          :itinerary="latestItinerary"
-        />
+      <!-- AI 助手仅挂载在规划页，结果/我的行程不展示 -->
+      <aside v-if="currentView === 'home'" class="assistant-column">
+        <FloatingChatAssistant :itinerary="latestItinerary" />
       </aside>
     </div>
   </div>
@@ -289,6 +322,10 @@ function updateCurrentItinerary(itinerary: Itinerary) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) calc(402px * var(--ui-scale));
   gap: calc(12px * var(--ui-scale));
+}
+
+.app-body--wide {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .page-content,

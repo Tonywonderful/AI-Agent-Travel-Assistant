@@ -29,6 +29,9 @@ defineProps<{
     <template v-else-if="name === 'chevron-down'">
       <path d="m6 9 6 6 6-6" />
     </template>
+    <template v-else-if="name === 'chevron-up'">
+      <path d="m18 15-6-6-6 6" />
+    </template>
     <template v-else-if="name === 'chevron-left'">
       <path d="m15 18-6-6 6-6" />
     </template>
@@ -51,6 +54,34 @@ defineProps<{
     <template v-else-if="name === 'calendar'">
       <rect x="3" y="5" width="18" height="16" rx="2" />
       <path d="M16 3v4M8 3v4M3 10h18" />
+    </template>
+    <template v-else-if="name === 'search'">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
+    </template>
+    <template v-else-if="name === 'refresh'">
+      <path d="M20 6v5h-5" />
+      <path d="M4 18v-5h5" />
+      <path d="M6.1 9A7 7 0 0 1 18 6l2 5M4 13l2 5a7 7 0 0 0 11.9-3" />
+    </template>
+    <template v-else-if="name === 'pie-chart'">
+      <path d="M11 3a9 9 0 1 0 9 9h-9V3Z" />
+      <path d="M14 3.6A8.5 8.5 0 0 1 20.4 10H14V3.6Z" />
+    </template>
+    <template v-else-if="name === 'filter'">
+      <path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5L4 5Z" />
+    </template>
+    <template v-else-if="name === 'clock'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </template>
+    <template v-else-if="name === 'check-circle'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8 12 2.5 2.5L16 9" />
+    </template>
+    <template v-else-if="name === 'edit'">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z" />
     </template>
     <template v-else-if="name === 'user'">
       <circle cx="12" cy="8" r="4" />

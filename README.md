@@ -2,9 +2,9 @@
 
 > 融合大模型、RAG、本地攻略与高德地图能力的智能旅行规划系统
 
-智旅云图是一个面向中文旅行场景的 AI 旅行规划项目。用户输入目的地、日期、预算、人数和偏好后，系统会自动生成结构化旅行方案，并进一步补充地图点位、天气信息、预算拆分、景点图片与可导出的旅行文档。
+智旅云图是一个面向中文旅行场景的 AI 旅行规划项目。用户输入目的地、日期、预算、人数和偏好后，系统会自动生成结构化旅行方案，并进一步补充地图点位、天气信息、预算拆分、景点图片；同时提供热门目的地推荐与可调用工具的 AI 对话助手。
 
-相比只输出一段文本的 LLM Demo，这个项目更强调完整链路落地：从 **行程生成、攻略检索、地图信息补全、天气补充，到历史管理与文档导出**，尽量把 AI 能力组织成一个可交互、可保存、可展示的产品原型。
+相比只输出一段文本的 LLM Demo，这个项目更强调完整链路落地：从 **行程生成、攻略检索、地图信息补全、天气补充、对话助手，到历史管理**，尽量把 AI 能力组织成一个可交互、可保存、可展示的产品原型。
 
 ## 📝 最近更新
 
@@ -16,32 +16,27 @@
 
 ## 📸 效果展示
 
-### 规划页
+![1784973950038](image/README/1784973950038.png)
 
-![规划页效果](./assets/showcase/01规划界面.jpeg)
+![1784974020820](image/README/1784974020820.png)
 
-### 行程生成结果页
-
-![行程生成结果页](./assets/showcase/02行程生成界面.jpeg)
-
-### 保存与历史管理
-
-![保存界面](./assets/showcase/03保存界面.jpeg)
+![1784974097819](image/README/1784974097819.png)
 
 ## ✨ 项目亮点
 
 - 🧠 **LLM 行程生成**：基于 LangChain 与 OpenAI-compatible 接口生成结构化旅行计划，Chat、Embedding、Rerank 模型可分别配置
-- 📚 **本地攻略检索**：覆盖北京、大理、成都、西安、厦门、三亚 6 个目的地，为行程生成补充对应城市的攻略信息，并避免跨城市内容混入
-- 🛡️ **不伪造的失败降级**：RAG 候选不足时返回空安排和原因说明，不再用模板化景点、餐饮或住宿名称填充结果
-- 🗺️ **高德地图接入**：补充景点地址、经纬度、POI ID、路线距离、耗时和景点图片，并支持虚线箭头路线可视化与 🚩 打卡标记
-- 🌦️ **天气感知提示**：前端展示天气预报，并根据雨天/阴天自动修正旅行提示
-- ⚡ **Redis 缓存层**：覆盖天气、地图、RAG 检索与 Rerank 结果缓存，减少重复外部调用开销
-- 📊 **Token 消耗统计**：按 Query Rewrite、Query Embedding、Rerank、Planner 分项统计输入/输出 token，并在后端日志与接口响应中返回总量
-- 💰 **预算拆分**：按交通、住宿、餐饮、门票、其他费用拆分，并支持按天展示
-- 🪄 **智能编辑**：支持用户用自然语言调整某一天行程
-- 🗂️ **历史管理**：支持保存、查看、打开、删除历史 itinerary
-- 📄 **文档导出**：支持 Markdown 和中文 PDF 导出，导出前自动同步当前页面数据
-- 🖥️ **前端可视化**：提供规划页、结果页和历史页，完成核心业务闭环展示
+- 📚 **本地攻略 RAG**：覆盖北京、大理、成都、西安、厦门、三亚 6 城；Query Rewrite + 向量召回 + Cross-encoder Rerank，并按 destination metadata 隔离，避免跨城市内容混入
+- 🛡️ **不伪造的失败降级**：RAG 候选不足时返回空安排和原因说明，只用攻略上下文中的真实名称，不再用模板化景点/餐饮/住宿填充
+- 💬 AI**对话助手**：SSE流式 Chat，携带当前页面与行程只读上下文；模型原生 tool calling 按需调用天气、地图、攻略与联网搜索
+- 🧰 **统一工具层 + MCP**：天气、地理编码、POI、路线、本地攻略检索、联网搜索共用同一批实现；既服务 Chat，也可通过 FastMCP 对外暴露
+- 🔥 **热门目的地推荐**：首页轮播展示 6 城封面与近几日天气，按出行适宜度排序；点击卡片自动填入规划表单
+- 🗺️ **高德地图补全与可视化**：补充地址、经纬度、POI、路线距离/耗时与图片，前端虚线箭头路线 + 打卡标记
+- 🌦️ **天气感知**：结果页展示预报，并根据雨天/阴天修正旅行提示；推荐流用固定 adcode 有界并发拉天气
+- 🔄 **知识库更新同步**：本地知识库变更可轮询检测并增量入库 / 替换 / 删除，同步清理相关chunk缓存
+- ⚡ **Redis 缓存层**：覆盖天气、地图、RAG 检索与 Rerank 结果，Redis 不可用时自动降级
+- 📊 **Token 消耗统计**：按 Query Rewrite、Query Embedding、Rerank、Planner 分项统计，接口响应与后端日志同步输出
+- 💰 **预算拆分与智能编辑**：费用按交通/住宿/餐饮/门票等拆分；支持自然语言调整某一天行程后自动刷新地图信息
+- 🗂️ **历史管理与前端闭环**：保存 / 查看 / 打开 / 删除历史行程；规划页、结果页、历史页覆盖核心业务路径
 
 ---
 
@@ -50,23 +45,25 @@
 ### 技术栈
 
 - 后端：FastAPI + Pydantic + SQLAlchemy
-- LLM：LangChain
+- LLM / Agent：LangChain（OpenAI-compatible Chat / Embedding / Rerank）
 - 向量库：ChromaDB
 - 缓存：Redis
+- 工具层：统一 Tool Registry + FastMCP
 - 外部服务：HTTPX + 高德地图 Web 服务 + 高德 JavaScript API
-- 前端：Vue 3 + Vite
+- 前端：Vue 3 + Vite + Ant Design Vue + TypeScript
 - 数据库：SQLite
 
 ### 核心架构分层
 
-| 层级     | 关键文件                     | 职责                                          |
-| :------- | :--------------------------- | :-------------------------------------------- |
-| 前端     | `frontend/src/views/*.vue` | 规划页、结果页、历史页展示与交互              |
-| 接口层   | `backend/app/api/routes/`  | trip、export、weather 路由                    |
-| 服务层   | `backend/app/services/`    | 行程编排、地图 enrich、天气、缓存、导出、存储 |
-| Agent 层 | `backend/app/agents/`      | LLM 行程生成 + LLM-based Query Rewrite        |
-| RAG 层   | `backend/app/rag/`         | 向量入库、检索、Cross-encoder Rerank          |
-| 数据层   | `backend/data/`            | 本地 Markdown 攻略文档                        |
+| 层级       | 关键文件                                      | 职责                                                          |
+| :--------- | :-------------------------------------------- | :------------------------------------------------------------ |
+| 前端       | `frontend/src/views/`、`components/`、`services/` | 规划页、结果页、历史页；地图 / 对话 / 推荐组件与 API 封装 |
+| 接口层     | `backend/app/api/routes/`                     | trip、weather、chat、recommendations 路由                     |
+| 服务层     | `backend/app/services/`                       | 行程编排、对话、推荐、地图 enrich、天气、缓存、存储           |
+| Agent 层   | `backend/app/agents/`                         | 行程生成 Agent、对话 Agent（tool calling + SSE）、Query Rewrite |
+| Tools / MCP | `backend/app/tools/`、`backend/app/mcp/`     | 天气 / 地图 / 攻略 / 联网搜索工具注册与执行；FastMCP 对外暴露 |
+| RAG 层     | `backend/app/rag/`                            | 向量入库、检索、Rerank、知识库同步与校验                      |
+| 数据层     | `backend/data/`、SQLite、Redis、ChromaDB      | 本地攻略文档、行程持久化、缓存、向量索引                      |
 
 ### 系统数据流
 
@@ -77,7 +74,7 @@ flowchart TD
     %% ------- Frontend -------
     subgraph Frontend["Frontend"]
         Vue["Vue 页面"]
-        Api["api.ts"]
+        Api["api.ts / chatApi.ts"]
     end
     class Frontend frontendBg;
 
@@ -87,22 +84,30 @@ flowchart TD
 
         subgraph Routes["Routes"]
             Trip["trip.py"]
-            Export["export.py"]
             Weather["weather.py"]
+            Chat["chat.py"]
+            Recs["recommendations.py"]
         end
 
         subgraph Services["Services"]
             TripSvc["trip_service.py"]
+            ChatSvc["chat_service.py"]
+            RecSvc["recommendation_service.py"]
             MapSvc["map_service.py"]
             WeatherSvc["weather_service.py"]
-            ExportSvc["export_service.py"]
             StorageSvc["storage_service.py"]
             CacheSvc["cache_service.py"]
         end
 
         subgraph Agent["Agent"]
             Planner["trip_planner_agent.py"]
+            ChatAgent["chat_agent.py"]
             RagTool["rag_tool.py"]
+        end
+
+        subgraph Tools["Tools / MCP"]
+            Registry["registry.py"]
+            McpSrv["mcp/server.py"]
         end
 
         subgraph RAG["RAG"]
@@ -122,18 +127,30 @@ flowchart TD
     Client --> Vue --> Api --> Main
 
     Main --> Trip
-    Main --> Export
     Main --> Weather
+    Main --> Chat
+    Main --> Recs
 
     Trip --> TripSvc
     Trip --> Schemas
     Weather --> WeatherSvc
-    Export --> ExportSvc
+    Chat --> ChatSvc
+    Recs --> RecSvc
 
     TripSvc --> Planner
     TripSvc --> MapSvc
+    TripSvc --> WeatherSvc
     TripSvc --> StorageSvc
     TripSvc --> CacheSvc
+
+    ChatSvc --> ChatAgent
+    ChatAgent --> Registry
+    Registry --> MapSvc
+    Registry --> WeatherSvc
+    Registry --> Retriever
+    McpSrv --> Registry
+
+    RecSvc --> WeatherSvc
 
     Planner --> RagTool
     RagTool --> Retriever
@@ -148,7 +165,8 @@ flowchart TD
     %% ------- 返回路径（虚线） -------
     TripSvc -.-> Api
     WeatherSvc -.-> Api
-    ExportSvc -.-> Api
+    ChatSvc -.-> Api
+    RecSvc -.-> Api
 
     %% ------- Colors -------
     classDef frontend fill:#eef2ff,stroke:#818cf8,color:#111;
@@ -156,26 +174,26 @@ flowchart TD
     classDef routes fill:#f0fdfa,stroke:#2dd4bf,color:#111;
     classDef services fill:#f5f3ff,stroke:#a78bfa,color:#111;
     classDef agent fill:#fff1f2,stroke:#fb7185,color:#111;
+    classDef tools fill:#fdf4ff,stroke:#e879f9,color:#111;
     classDef rag fill:#ecfeff,stroke:#22d3ee,color:#111;
     classDef data fill:#f0fdf4,stroke:#4ade80,color:#111;
     classDef storage fill:#fff7ed,stroke:#fb923c,color:#111;
 
-    %% 背景框颜色（Frontend、Backend）
     classDef frontendBg fill:#eef2ff,stroke:#818cf8,stroke-width:2px,color:#111;
     classDef backendBg fill:#fffbea,stroke:#facc15,stroke-width:2px,color:#111;
 
-    %% ------- Assign Colors -------
     class Client,Vue,Api frontend;
     class Main backend;
-    class Trip,Export,Weather routes;
-    class TripSvc,MapSvc,WeatherSvc,ExportSvc,StorageSvc,CacheSvc services;
-    class Planner,RagTool agent;
+    class Trip,Weather,Chat,Recs routes;
+    class TripSvc,ChatSvc,RecSvc,MapSvc,WeatherSvc,StorageSvc,CacheSvc services;
+    class Planner,ChatAgent,RagTool agent;
+    class Registry,McpSrv tools;
     class Retriever,VectorDB,ChromaDB rag;
     class Schemas,DBModels data;
     class Redis,SQLite storage;
 ```
 
-数据流路径：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图服务补充地址、坐标、路线和图片 → 前端展示地图、天气、预算和每日行程 → 用户可保存、编辑、查看历史并导出文档。
+数据流路径：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图 / 天气服务补全展示信息 → 前端展示地图、天气、预算和每日行程；对话助手经统一工具层按需查询天气、地图、攻略与联网结果；用户可保存、编辑与查看历史行程。
 
 ### 数据存储与缓存分工
 
@@ -184,7 +202,7 @@ flowchart TD
 - **SQLite：负责持久化存储**
 
   - 实现位置：`backend/app/config.py`、`backend/app/models/db_models.py`、`backend/app/services/storage_service.py`
-  - 使用场景：保存用户生成后的完整旅行方案，并支持历史列表、详情查询、删除和 Markdown/PDF 导出。
+  - 使用场景：保存用户生成后的完整旅行方案，并支持历史列表、详情查询与删除。
   - 存储方式：通过 SQLAlchemy 定义 `TripRecord` 表，核心字段包括 `trip_id`、`destination`、`summary`、`itinerary_json`、`created_at`、`updated_at`。
   - 设计原因：旅行方案属于用户主动保存的业务数据，需要长期保留、可查询、可删除；当前阶段采用 SQLite 轻量部署，适合个人项目和 Demo 场景。
 - **Redis：负责缓存加速**
@@ -302,104 +320,92 @@ flowchart TD
 ## 📁 项目结构
 
 ```text
-TripPlannerDemo/
+AI Agent Travel Assistant/
 ├── backend/
 │   ├── app/
-│   │   ├── config.py                  # 环境变量、数据库与全局配置
+│   │   ├── config.py                    # 环境变量、数据库与全局配置
 │   │   ├── agents/
-│   │   │   ├── trip_planner_agent.py  # LLM 行程生成与单日编辑
+│   │   │   ├── trip_planner_agent.py    # LLM 行程生成
+│   │   │   ├── chat_agent.py            # 对话 Agent：tool calling 循环与SSE流式输出
 │   │   │   └── tools/
-│   │   │       └── rag_tool.py         # 查询改写与检索规则加载
+│   │   │       └── rag_tool.py           # 查询改写与检索规则加载
 │   │   ├── api/
-│   │   │   ├── main.py                 # FastAPI 应用入口
+│   │   │   ├── main.py                   # FastAPI 应用入口
 │   │   │   └── routes/
-│   │   │       ├── trip.py             # 行程生成、编辑与历史接口
-│   │   │       ├── export.py           # Markdown / PDF 导出接口
-│   │   │       └── weather.py          # 天气预报接口
+│   │   │       ├── trip.py               # 行程生成、编辑与历史接口
+│   │   │       ├── chat.py               # 流式对话接口
+│   │   │       ├── recommendations.py    # 热门目的地推荐接口
+│   │   │       └── weather.py            # 天气预报接口
 │   │   ├── models/
-│   │   │   ├── schemas.py              # Pydantic 请求与响应模型
-│   │   │   └── db_models.py            # SQLAlchemy 数据表定义
+│   │   │   ├── schemas.py                # 行程相关 Pydantic 模型
+│   │   │   ├── chat_schemas.py           # 对话请求 / 上下文 / 流式事件模型
+│   │   │   └── db_models.py              # SQLAlchemy 数据表定义
 │   │   ├── rag/
-│   │   │   ├── guide_catalog.py        # 攻略文件与目的地映射
-│   │   │   ├── vector_db.py            # 文档切片、Chroma 入库与检索
-│   │   │   ├── retriever.py            # 检索、重排序与缓存
-│   │   │   └── knowledge_validation.py # 攻略、规则与评估配置一致性校验
+│   │   │   ├── guide_catalog.py          # 攻略文件与目的地映射
+│   │   │   ├── vector_db.py              # 文档切片、Chroma 入库与检索
+│   │   │   ├── retriever.py              # 检索、重排序与缓存
+│   │   │   ├── document_registry.py      # 知识库文档清单与内容哈希
+│   │   │   ├── knowledge_poller.py       # 本地攻略变更检测与增量同步
+│   │   │   └── knowledge_validation.py   # 攻略、规则与评估配置一致性校验
+│   │   ├── tools/          
+│   │   │   ├── base.py                   # ToolResult 统一返回结构
+│   │   │   ├── registry.py               # 工具注册表、规格与执行入口
+│   │   │   ├── knowledge_tools.py        # 本地攻略检索工具
+│   │   │   ├── map_tools.py              # 地理编码 / POI / 路线工具
+│   │   │   ├── weather_tools.py          # 天气预报工具
+│   │   │   └── web_search_tools.py       # 联网搜索工具
+│   │   ├── mcp/
+│   │   │   └── server.py                 # FastMCP Server，对外暴露旅行工具
 │   │   └── services/
-│   │       ├── trip_service.py         # 行程主编排、预算与地图补全
-│   │       ├── fallback_candidates.py  # 从攻略上下文提取真实候选
-│   │       ├── map_service.py          # 高德 POI、路线与图片
-│   │       ├── weather_service.py      # 天气服务
-│   │       ├── storage_service.py      # SQLite 行程存储
-│   │       ├── cache_service.py        # Redis 缓存与降级
-│   │       └── export_service.py       # Markdown / PDF 导出
+│   │       ├── trip_service.py           # 行程主编排、预算与地图补全
+│   │       ├── chat_service.py           # 对话服务编排
+│   │       ├── recommendation_service.py # 热门目的地推荐与天气排序
+│   │       ├── fallback_candidates.py    # 从攻略上下文提取真实候选
+│   │       ├── map_service.py            # 高德 POI、路线与图片
+│   │       ├── weather_service.py        # 天气服务
+│   │       ├── storage_service.py        # SQLite 行程存储
+│   │       └── cache_service.py          # Redis 缓存与降级
 │   ├── data/
-│   │   ├── *_guide.md                  # 6 个目的地的本地攻略
-│   │   └── retrieval_rules.json        # 查询扩展词配置
-│   ├── eval/rag_eval_cases.json        # RAG 评估样例集
-│   ├── scripts/                         # 数据入库、调试、评估与校验脚本
-│   ├── tests/                           # pytest 测试
-│   ├── .env.example                     # 后端环境变量模板
+│   │   ├── *_guide.md                    # 6 个目的地的本地攻略
+│   │   └── retrieval_rules.json          # 查询扩展词配置
+│   ├── eval/rag_eval_cases.json          # RAG 评估样例集
+│   ├── scripts/                          # 入库、同步、调试、评估与校验脚本
+│   ├── tests/                            # pytest 测试
+│   ├── .env.example                      # 后端环境变量模板
 │   └── requirements.txt
 ├── frontend/
+│   ├── public/covers/                    # 热门目的地封面图
 │   ├── src/
 │   │   ├── views/
-│   │   │   ├── Home.vue                 # 规划页面
-│   │   │   ├── Result.vue               # 行程结果页面
-│   │   │   └── History.vue              # 历史行程页面
+│   │   │   ├── Home.vue                   # 规划页：表单 + 热门目的地
+│   │   │   ├── Result.vue                 # 结果页：行程 / 地图 / 天气 / 预算
+│   │   │   └── History.vue                # 我的行程页
 │   │   ├── components/
-│   │   │   └── AmapTripMap.vue          # 地图展示组件
-│   │   ├── services/api.ts              # 后端接口封装
-│   │   ├── types/                       # TypeScript 类型定义
-│   │   ├── App.vue
-│   │   └── main.ts
+│   │   │   ├── AmapTripMap.vue            # 高德地图路线与打卡标记
+│   │   │   ├── DestinationCarousel.vue   # 热门目的地轮播卡片
+│   │   │   ├── FloatingChatAssistant.vue # AI对话助手
+│   │   │   └── AppIcon.vue               # 统一图标组件
+│   │   ├── services/
+│   │   │   ├── api.ts                     # 行程 / 天气 / 推荐接口封装
+│   │   │   └── chatApi.ts                 # 流式对话接口封装
+│   │   ├── types/
+│   │   │   ├── index.ts                   # 行程与推荐相关类型
+│   │   │   └── chat.ts                    # 对话消息与上下文类型
+│   │   ├── utils/
+│   │   │   ├── chatContext.ts             # 页面 / 行程上下文组装
+│   │   │   ├── clientCache.ts             # 前端本地缓存
+│   │   │   └── markdown.ts                # 对话 Markdown 渲染
+│   │   ├── App.vue                        # 页面切换与全局布局
+│   │   └── main.ts                        # 前端入口
+│   ├── .env.example                      # 前端环境变量模板
 │   └── package.json
-├── docs/                                # 架构、数据与优化文档
-├── assets/showcase/                     # README 展示截图
+├── assets/                               # 展示素材与目的地封面源文件
+├── docs/                                 # 架构、数据与优化文档（默认 gitignore）
 ├── README.md
 └── CHANGELOG.md
 ```
 
 > `docs/` 是本地开发与面试准备文档目录，默认已被 `.gitignore` 忽略，不随 GitHub 上传。
-
-### 关键文件职责
-
-**后端**
-
-- `backend/app/services/trip_service.py`
-  itinerary 主流程编排，包括天数拆分、预算估算、地图 enrich 以及编辑后的统一刷新。
-- `backend/app/services/cache_service.py`
-  Redis 客户端懒加载、JSON 缓存读写与 Redis 不可用时的优雅降级。
-- `backend/app/agents/trip_planner_agent.py`
-  调用大模型生成结构化旅行草稿，并处理单日编辑时的 LLM 输出。
-- `backend/app/agents/tools/rag_tool.py`
-  RAG 在线阶段的 Query Rewrite，优先 LLM-based 改写（qwen-max），fallback 到规则级关键词提取。
-- `backend/app/rag/retriever.py`
-  向量召回结果封装、RAG 缓存、Cross-encoder Rerank（qwen3-rerank）+ Rerank 缓存，fallback 到规则级打分。
-- `backend/app/services/map_service.py`
-  对接高德地图 Web 服务，结合 Redis 缓存补充地址、经纬度、路线估算和景点图片。
-- `backend/app/services/export_service.py`
-  itinerary 渲染为 Markdown 与中文 PDF。
-- `backend/app/services/storage_service.py`
-  SQLite 数据保存、读取、历史列表和删除。
-- `backend/scripts/debug_rag_retrieval.py`
-  RAG 在线阶段调试，输出检索 query、top-k 召回片段、`rerank_score` 与 `rerank_reasons`。
-- `backend/scripts/evaluate_rag_retrieval.py`
-  RAG 检索效果评估，输出 Top1/TopK 命中率、MRR、Noise Rate、Latency 与跨目的地污染指标。
-- `backend/eval/rag_eval_cases.json`
-  RAG 检索评估样例集，用于对比优化前后的效果变化。
-
-**前端**
-
-- `frontend/src/services/api.ts`
-  Axios 封装与后端接口通信。
-- `frontend/src/views/Home.vue`
-  规划页，收集用户输入并发起行程生成请求。
-- `frontend/src/views/Result.vue`
-  结果展示页，承接 itinerary、地图、天气和导出交互。
-- `frontend/src/views/History.vue`
-  历史列表页，支持查看、打开和删除历史行程。
-- `frontend/src/components/AmapTripMap.vue`
-  高德地图组件，展示路线可视化与景点标记。
 
 ---
 
@@ -449,98 +455,6 @@ npm run dev
 默认 `REDIS_ENABLED=false`，即使未安装 Redis 也可以运行项目。若本机已安装 Redis，可运行 `redis-server`，再将 `backend/.env` 中的 `REDIS_ENABLED` 改为 `true`，以启用天气、地图和检索缓存。
 
 ---
-
-## 🔐 环境变量
-
-### 后端 `backend/.env`
-
-```env
-# LLM
-LLM_PROVIDER=openai_compatible          # 固定值，使用 OpenAI 兼容接口
-LLM_API_KEY=your_api_key                # OpenAI-compatible 服务的 API Key
-LLM_MODEL=your_chat_model               # 生成模型，例如 deepseek-v4-flash
-LLM_BASE_URL=https://your-provider/v1   # 服务的 OpenAI-compatible 地址
-LLM_TIMEOUT_SECONDS=60                  # 单次 LLM 调用超时
-LLM_MAX_RETRIES=1                       # 失败重试次数
-
-# RAG / 向量库
-CHROMA_DB_DIR=db/chroma_db              # ChromaDB 持久化目录
-CHROMA_COLLECTION_NAME=travel_guides    # 集合名称
-EMBEDDING_MODEL=your_embedding_model    # 嵌入模型，例如 qwen3.7-text-embedding
-EMBEDDING_BATCH_SIZE=10                 # 单批嵌入条数
-RERANK_MODEL=qwen3-rerank              # DashScope Rerank 模型
-RAG_TOP_K=5                             # 最终返回的攻略片段数（改这里即可，无需改代码）
-
-# Redis / 缓存
-REDIS_ENABLED=false                     # 是否开启缓存（需先启动 Redis）
-REDIS_URL=redis://127.0.0.1:6379/0     # Redis 连接地址
-REDIS_KEY_PREFIX=trip_planner           # 缓存 key 前缀，避免多项目冲突
-REDIS_DEFAULT_TTL_SECONDS=1800          # 默认缓存 30 分钟
-REDIS_WEATHER_TTL_SECONDS=1800          # 天气缓存 30 分钟
-REDIS_MAP_TTL_SECONDS=86400             # 地图缓存 24 小时
-REDIS_RAG_TTL_SECONDS=21600             # RAG 检索缓存 6 小时
-REDIS_RERANK_TTL_SECONDS=21600          # Rerank 缓存 6 小时
-
-# 高德地图
-AMAP_API_KEY=your_amap_web_service_key  # 高德 Web 服务 Key
-AMAP_BASE_URL=https://restapi.amap.com/v3
-AMAP_DEFAULT_CITY=                      # 默认城市（可留空）
-AMAP_TIMEOUT_SECONDS=20                 # 高德接口超时
-ENABLE_AMAP_ENRICHMENT=true             # 是否开启地图信息补全
-```
-
-### 前端 `frontend/.env`
-
-```env
-VITE_API_BASE_URL=http://你的服务器地址:8000
-VITE_AMAP_JS_KEY=your_amap_javascript_api_key
-```
-
-注意：
-
-- 如果浏览器在本机打开，`VITE_API_BASE_URL` 不要写远程服务器内部的 `127.0.0.1`
-- 后端高德 key 使用 Web 服务 key
-- 前端地图 key 使用 JavaScript API key
-- 修改 `.env` 后需要重启对应服务
-
----
-
-## 🧠 RAG 数据初始化
-
-首次使用 Chroma 检索前，执行：
-
-```bash
-cd backend
-python scripts/ingest_data.py
-```
-
-成功后会看到类似结果：
-
-```text
-written_count: 9
-```
-
----
-
-## 📡 核心接口
-
-| 方法       | 路径                           | 说明                            |
-| :--------- | :----------------------------- | :------------------------------ |
-| `GET`    | `/`                          | 服务启动检查                    |
-| `GET`    | `/health`                    | 健康检查                        |
-| `POST`   | `/trip/generate`             | 生成行程                        |
-| `GET`    | `/trip/stats`                | 查询已保存行程的 token 消耗统计 |
-| `POST`   | `/trip/edit`                 | 智能编辑行程                    |
-| `POST`   | `/trip/save`                 | 保存行程                        |
-| `GET`    | `/trip`                      | 历史列表                        |
-| `GET`    | `/trip/{trip_id}`            | 行程详情                        |
-| `DELETE` | `/trip/{trip_id}`            | 删除行程                        |
-| `GET`    | `/export/{trip_id}/markdown` | 导出 Markdown                   |
-| `GET`    | `/export/{trip_id}/pdf`      | 导出 PDF                        |
-| `GET`    | `/weather/forecast`          | 查询天气                        |
-
----
-
 
 ## 🔄 关键业务链路
 
@@ -635,110 +549,45 @@ POST /trip/edit
       -> 返回更新后的 Itinerary
 ```
 
-### 保存与导出
+### 保存与历史
 
 ```text
 POST /trip/save
   -> storage_service.py -> SQLite 持久化
 
-GET /export/{trip_id}/markdown
-  -> storage_service.py 读取 itinerary
-  -> export_service.py -> Jinja2 渲染 Markdown
+GET /trip
+  -> storage_service.py -> 历史列表
 
-GET /export/{trip_id}/pdf
-  -> storage_service.py 读取 itinerary
-  -> export_service.py -> ReportLab 生成中文 PDF
-  -> Content-Disposition 返回下载文件名（RFC 编码兼容中文）
+GET /trip/{trip_id}
+  -> storage_service.py -> 行程详情
+
+DELETE /trip/{trip_id}
+  -> storage_service.py -> 删除记录
 ```
 
----
-
-## 🛠️ 常见问题
-
-### 前端生成失败
-
-优先检查：
-
-- 后端是否启动在 `8000`
-- `frontend/.env` 的 `VITE_API_BASE_URL` 是否正确
-- 修改 `.env` 后是否重启前端
-- 浏览器控制台是否有网络错误
-
-### 地图不显示
-
-优先检查：
-
-- `VITE_AMAP_JS_KEY` 是否配置
-- 高德 JavaScript API key 是否可用
-- itinerary 中是否有经纬度字段
-- 后端 `ENABLE_AMAP_ENRICHMENT` 是否为 `true`
-
-### PDF 导出空白页
-
-正常导出时后端应看到：
+### 对话助手
 
 ```text
-POST /trip/save
-GET /export/{trip_id}/pdf
+POST /chat/stream（SSE）
+  -> chat.py（路由层）
+    -> chat_service.py
+      -> chat_agent.py
+           携带页面 / 行程只读上下文
+           -> 模型原生 tool calling
+           -> tools/registry.py 按需执行
+                天气 / 地理编码 / POI / 路线 / 本地攻略 / 联网搜索
+           -> 流式返回文本与工具调用事件
 ```
 
-如果只有 `POST /trip/save`，说明前端没有成功跳转到导出地址，需要刷新前端或重启 Vite。
+### 热门目的地推荐
 
-### `npm run dev` 找不到 `package.json`
-
-说明目录错了。前端命令必须在 `frontend/` 目录执行：
-
-```bash
-cd frontend
+```text
+GET /recommendations/hot
+  -> recommendations.py
+    -> recommendation_service.py
+         固定 6 城封面与 adcode
+         -> weather_service.py 有界并发拉近几日天气
+         -> 按出行适宜度排序后返回
 ```
 
 ---
-
-## ✅ 当前完成度
-
-- ✅ **后端能力**：行程生成、智能编辑、保存查询、历史列表、删除、天气查询、Markdown 导出与 PDF 导出接口
-- ✅ **AI 与数据能力**：LangChain 行程生成链路、北京/大理/成都/西安/厦门/三亚 6 城攻略 RAG 检索、Chroma 入库检索、高德地图地址/坐标/路线/图片补充
-- ✅ **RAG 在线优化**：LLM-based Query Rewrite + Cross-encoder Rerank（qwen3-rerank）+ 噪声预过滤 + Rerank 缓存、目的地 metadata 过滤、检索调试脚本与 18 条评估样例集、量化评估指标体系（Top1/TopK Hit Rate、MRR、Noise Rate、Latency、Cross-destination Pollution）
-- ✅ **Token 观测能力**：`/trip/generate` 返回本次 Query Rewrite、Query Embedding、Rerank、Planner 的分项 token 消耗，后端终端同步打印 prompt/completion/total，`/trip/stats` 汇总已保存行程的 token 统计
-- ✅ **前端能力**：规划页、结果页、历史列表页，以及地图/天气/预算展示、导出与历史管理主流程
-- ✅ **缓存与持久化**：SQLite 持久化存储 + Redis 缓存层（覆盖天气、地图、RAG 检索与 Rerank 结果）
-- ✅ **数据一致性与失败降级**：规则、fallback、评估断言与目的地 metadata 可离线校验；RAG 候选不足时不再生成模板化景点、餐饮或住宿名称
-- ⚠️ **数据边界**：当前 Markdown 攻略仅作参考知识；价格、营业状态和可预订性尚未逐条接入可追溯的实时或人工核验来源
-- ⚠️ **外部模型依赖**：本地离线测试已通过；实际 Chat、Embedding、Rerank 调用仍取决于模型账户状态、模型开通情况和 `.env` 配置
-
----
-
-## 🌱 后续优化方向
-
-- ✅ **缓存与工程化能力**
-  已完成 Redis 缓存层，覆盖天气查询、地图查询、RAG 检索结果与 Rerank 结果缓存；后续可扩展到会话态管理、热点目的地复用与更细粒度的缓存命中统计。
-- ✅ **RAG 检索增强**
-  - ✅ 规则级 Query Rewrite → LLM-based Query Rewrite（qwen-max），Top1 80%→86.7%，MRR 0.889→0.922。
-  - ✅ 规则级 Rerank → Cross-encoder Rerank（qwen3-rerank）+ 噪声预过滤 + Rerank 缓存，Top1 86.7%→93.3%，MRR 0.922→0.967。
-  - ✅ 知识库已覆盖 6 个目的地，评估样例集 18 条；规则、fallback、评估断言与目的地 metadata 已有离线一致性校验。模型账户恢复后需重新执行真实 RAG 评估，建立新的在线质量基线。
-- 🚧 **Token 成本分析看板**
-  已完成后端 token 统计与 `/trip/stats` 汇总接口，后续可在前端增加成本分析面板，对比不同 RAG 策略下的 token 消耗、延迟和生成质量。
-- 🚧 **检索结果压缩与去冗**
-  RAG 召回片段可能存在重复或冗余信息，送入 LLM 前做一次压缩去重，减少 token 消耗，提升生成质量。
-- 🚧 **混合检索（向量 + BM25）**
-  当前只用向量检索，加上 BM25 关键词检索后用 RRF（Reciprocal Rank Fusion）融合排序，同时覆盖语义相似和关键词精确匹配的场景。
-- 🚧 **PDF 导出优化**
-  当前 PDF 可读性较低，后续可优化排版（分栏、卡片式布局）、中文字体、景点图片嵌入、天气图标和路线示意图，生成更接近旅行手册风格的导出文档。
-- 🚧 **知识库来源扩充**
-  可接入小红书等社交平台的旅行帖子，通过多模态解析（图文提取、结构化摘要）将真实游记转化为本地知识库素材，补充官方攻略覆盖不到的体验细节和实用 tips。
-- 🚧 **LangGraph 工作流**
-  当前以 LangChain 线性编排为主，后续可引入 LangGraph 把生成、检索、地图 enrich、天气补充、编辑与导出组织成状态机，支持条件分支与并行执行；进一步可引入基于 LLM 的意图识别路由，让系统先判断用户请求类型再分发到对应处理链路。
-- 🚧 **真实商户信息展示**
-  后端接入真实餐饮、酒店/民宿数据（如高德 POI 详情、大众点评等），泛化为结构化数据（名称、地址、评分、人均、图片等），前端以卡片形式展示，提升行程的实用性和可信度。
-- 🚧 **外部工具与 MCP 化**
-  地图、天气、联网搜索、POI 检索这类外部能力后续可以逐步抽成 MCP 工具层，便于和不同 Agent 或工作流复用，而主业务编排继续保留在服务层。
-- 🚧 **GraphRAG**
-  用图结构表达城市、景点、路线与主题标签之间的关系，增强多地点联动推荐和行程合理性约束。
-- 🚧 **联网搜索增强**
-  可接入联网搜索能力，补充景点营业状态、近期热门地点、节假日信息与实时出行建议，让本地攻略 RAG 与实时信息形成互补。
-- 🚧 **旅行方案质量评估体系**
-  建立生成结果的量化评估指标，例如结构完整性、预算合理性、景点覆盖率、天气一致性和用户偏好满足度，实现端到端的效果度量。
-- 🚧 **性能与稳定性**
-  可以加入异步任务队列、请求限流、失败重试、日志追踪与监控告警，提升真实部署场景下的稳定性。
-- 🚧 **产品能力延展**
-  可以继续增强移动端适配、用户登录、多用户隔离、行程对比和行程分享等产品能力。

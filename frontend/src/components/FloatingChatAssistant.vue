@@ -4,19 +4,17 @@ import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import { streamChat } from "../services/chatApi";
 import type { Itinerary } from "../types";
 import type { ChatMessage, ChatUiMessage } from "../types/chat";
-import { buildChatContext, viewToChatPage } from "../utils/chatContext";
+import { buildChatContext } from "../utils/chatContext";
 import { renderMarkdown } from "../utils/markdown";
 import AppIcon from "./AppIcon.vue";
 
 const props = defineProps<{
-  currentView: "home" | "result" | "history";
   itinerary: Itinerary | null;
 }>();
 
 const input = ref("");
 const messages = ref<ChatUiMessage[]>([]);
 const isStreaming = ref(false);
-const assistantEnabled = ref(true);
 const statusText = ref("");
 const errorText = ref("");
 
@@ -25,33 +23,19 @@ let idCounter = 0;
 
 const listRef = ref<HTMLElement | null>(null);
 
-const pageLabel = computed(() => {
-  if (props.currentView === "home") return "规划页";
-  if (props.currentView === "result") return "结果页";
-  return "历史页";
-});
-
+// 助手仅出现在规划页，上下文固定为 planning
 const contextHint = computed(() => {
   if (props.itinerary?.destination) {
-    return `已携带行程：${props.itinerary.destination} · ${props.itinerary.days?.length || 0} 天`;
+    return `可参考最近行程：${props.itinerary.destination} · ${props.itinerary.days?.length || 0} 天`;
   }
-  return "随时为你解答旅行问题";
+  return "在规划阶段随时为你解答旅行问题";
 });
 
-const quickPrompts = computed(() => {
-  if (props.itinerary) {
-    return [
-      "这几天天气怎么样？适合看日落吗？",
-      "第一天主要景点之间开车大概多久？",
-      "帮我概括这份行程的亮点",
-    ];
-  }
-  return [
-    "推荐适合情侣的旅行目的地",
-    "帮我规划一个 3 天的轻松行程",
-    "预算 5000 能去哪些地方？",
-  ];
-});
+const quickPrompts = [
+  "推荐适合情侣的旅行目的地",
+  "帮我规划一个 3 天的轻松行程",
+  "预算 5000 能去哪些地方？",
+];
 
 function nextId(prefix: string): string {
   idCounter += 1;
@@ -111,7 +95,7 @@ async function sendMessage(raw?: string) {
   }
 
   const context = buildChatContext({
-    page: viewToChatPage(props.currentView),
+    page: "planning",
     itinerary: props.itinerary,
   });
 
@@ -229,13 +213,6 @@ onBeforeUnmount(() => {
         <div class="chat-side__title">旅行 AI 助手</div>
         <div class="chat-side__meta">{{ contextHint }}</div>
       </div>
-      <button
-        type="button"
-        :class="['assistant-switch', { active: assistantEnabled }]"
-        role="switch"
-        :aria-checked="assistantEnabled"
-        @click="assistantEnabled = !assistantEnabled"
-      ><span></span></button>
     </header>
 
     <section v-if="!messages.length" class="quick-section">
@@ -245,7 +222,7 @@ onBeforeUnmount(() => {
         :key="prompt"
         type="button"
         class="quick-chip"
-        :disabled="!assistantEnabled"
+        :disabled="isStreaming"
         @click="sendMessage(prompt)"
       >
         <span :class="`quick-chip__icon quick-chip__icon--${index + 1}`">
@@ -306,12 +283,12 @@ onBeforeUnmount(() => {
           type="text"
           maxlength="200"
           placeholder="输入你的问题…"
-          :disabled="isStreaming || !assistantEnabled"
+          :disabled="isStreaming"
           @keydown.enter.exact.prevent="sendMessage()"
         />
         <span class="input-count">{{ input.length }}/200</span>
         <button v-if="isStreaming" type="button" class="send-btn send-btn--stop" @click="stopStreaming">停</button>
-        <button v-else type="button" class="send-btn" :disabled="!input.trim() || !assistantEnabled" @click="sendMessage()">
+        <button v-else type="button" class="send-btn" :disabled="!input.trim()" @click="sendMessage()">
           <AppIcon name="send" :size="19" :stroke-width="2.1" />
         </button>
       </div>
@@ -688,37 +665,6 @@ onBeforeUnmount(() => {
   color: #687791;
   font-size: calc(13px * var(--ui-scale));
   line-height: 1.2;
-}
-
-.assistant-switch {
-  width: calc(51px * var(--ui-scale));
-  height: calc(29px * var(--ui-scale));
-  flex: 0 0 auto;
-  margin-top: calc(6px * var(--ui-scale));
-  padding: calc(3px * var(--ui-scale));
-  border: 0;
-  border-radius: 16px;
-  background: #cad5df;
-  cursor: pointer;
-  transition: background 0.18s ease;
-}
-
-.assistant-switch span {
-  display: block;
-  width: calc(23px * var(--ui-scale));
-  height: calc(23px * var(--ui-scale));
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(20, 50, 80, 0.3);
-  transition: transform 0.18s ease;
-}
-
-.assistant-switch.active {
-  background: #02b878;
-}
-
-.assistant-switch.active span {
-  transform: translateX(calc(22px * var(--ui-scale)));
 }
 
 .quick-section {
