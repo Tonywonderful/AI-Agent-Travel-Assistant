@@ -24,15 +24,16 @@
 
 ## ✨ 项目亮点
 
-- 🧠 **LLM 行程生成**：基于 LangChain 与 OpenAI-compatible 接口生成结构化旅行计划，Chat、Embedding、Rerank 模型可分别配置
-- 📚 **本地攻略 RAG**：覆盖北京、大理、成都、西安、厦门、三亚 6 城；Query Rewrite + 向量召回 + Cross-encoder Rerank，并按 destination metadata 隔离，避免跨城市内容混入
-- 🛡️ **不伪造的失败降级**：RAG 候选不足时返回空安排和原因说明，只用攻略上下文中的真实名称，不再用模板化景点/餐饮/住宿填充
-- 💬 AI**对话助手**：SSE流式 Chat，携带当前页面与行程只读上下文；模型原生 tool calling 按需调用天气、地图、攻略与联网搜索
-- 🧰 **统一工具层 + MCP**：天气、地理编码、POI、路线、本地攻略检索、联网搜索共用同一批实现；既服务 Chat，也可通过 FastMCP 对外暴露
+- 🧠 **LLM 行程生成**：基于 LangChain 与 OpenAI-compatible 接口生成结构化旅行计划；Chat 与 Embedding 的模型名、Base URL、API Key 均可独立配置，Rerank 可配置模型名
+- 📚 **本地攻略 RAG**：覆盖北京、大理、成都、西安、厦门、三亚 6 城；Query Rewrite + 向量召回 + Cross-encoder Rerank，并在 Chroma 侧用 destination metadata 过滤，避免跨城市内容混入
+- 🛡️ **名称回查校验**：模型产出的景点与餐饮名必须能在本次检索到的攻略里找到出处，找不到就丢弃并退回真实候选或留空——「只用真实名称」是代码校验，不只是 prompt 约束
+- 🧯 **不伪造的失败降级**：检索为空或模型不可用时返回空安排和原因说明，不用模板化景点/餐饮/住宿填充
+- 💬 **AI 对话助手**：SSE 逐 token 流式输出，携带当前页面与行程只读上下文；模型原生 tool calling 按需调用天气、地图、攻略与联网搜索
+- 🧰 **统一工具层 + MCP**：天气、地理编码、POI、路线、本地攻略检索、联网搜索共用同一批底层实现；既服务 Chat，也可通过 FastMCP 对外暴露
 - 🔥 **热门目的地推荐**：首页轮播展示 6 城封面与近几日天气，按出行适宜度排序；点击卡片自动填入规划表单
-- 🗺️ **高德地图补全与可视化**：补充地址、经纬度、POI、路线距离/耗时与图片，前端虚线箭头路线 + 打卡标记
+- 🗺️ **高德地图补全与可视化**：补充地址、经纬度、POI、路线距离/耗时与图片，前端虚线箭头路线 + 打卡标记（后端默认关闭，需设 `ENABLE_AMAP_ENRICHMENT=true`）
 - 🌦️ **天气感知**：结果页展示预报，并根据雨天/阴天修正旅行提示；推荐流用固定 adcode 有界并发拉天气
-- 🔄 **知识库更新同步**：本地知识库变更可轮询检测并增量入库 / 替换 / 删除，同步清理相关chunk缓存
+- 🔄 **知识库更新同步**：以内容哈希检测本地攻略变更，增量入库 / 替换 / 删除并清理相关 chunk 缓存（通过 `scripts/sync_knowledge_base.py` 触发，非后台常驻任务）
 - ⚡ **Redis 缓存层**：覆盖天气、地图、RAG 检索与 Rerank 结果，Redis 不可用时自动降级
 - 📊 **Token 消耗统计**：按 Query Rewrite、Query Embedding、Rerank、Planner 分项统计，接口响应与后端日志同步输出
 - 💰 **预算拆分与智能编辑**：费用按交通/住宿/餐饮/门票等拆分；支持自然语言调整某一天行程后自动刷新地图信息
@@ -58,9 +59,9 @@
 | 层级        | 关键文件                                                | 职责                                                            |
 | :---------- | :------------------------------------------------------ | :-------------------------------------------------------------- |
 | 前端        | `frontend/src/views/`、`components/`、`services/` | 规划页、结果页、历史页；地图 / 对话 / 推荐组件与 API 封装       |
-| 接口层      | `backend/app/api/routes/`                             | trip、weather、chat、recommendations 路由                       |
-| 服务层      | `backend/app/services/`                               | 行程编排、对话、推荐、地图 enrich、天气、缓存、存储             |
-| Agent 层    | `backend/app/agents/`                                 | 行程生成 Agent、对话 Agent（tool calling + SSE）、Query Rewrite |
+| 接口层      | `backend/app/api/routes/`                             | trip、weather、chat、recommendations 路由；SSE 帧编码           |
+| 服务层      | `backend/app/services/`                               | 行程编排、对话入参校验、推荐、地图 enrich、天气、缓存、存储、名称校验 |
+| Agent 层    | `backend/app/agents/`                                 | 行程生成 Agent、对话 Agent（tool calling 循环）、Query Rewrite   |
 | Tools / MCP | `backend/app/tools/`、`backend/app/mcp/`            | 天气 / 地图 / 攻略 / 联网搜索工具注册与执行；FastMCP 对外暴露   |
 | RAG 层      | `backend/app/rag/`                                    | 向量入库、检索、Rerank、知识库同步与校验                        |
 | 数据层      | `backend/data/`、SQLite、Redis、ChromaDB              | 本地攻略文档、行程持久化、缓存、向量索引                        |
@@ -68,7 +69,49 @@
 ### 系统数据流
 
 ```mermaid
+flowchart TB
+    subgraph U["用户操作"]
+        U1["填写目的地 / 日期 / 预算 / 偏好"]
+        U2["查看行程 · 地图 · 天气 · 预算"]
+        U3["自然语言微调某一天"]
+        U4["保存 / 打开 / 删除历史行程"]
+        U5["随时向 AI 助手提问"]
+    end
+
+    subgraph P["行程生成"]
+        P1["查询改写<br/>把表单变成检索关键词"]
+        P2["本地攻略检索<br/>向量召回 + 语义重排"]
+        P3["大模型生成结构化行程"]
+        P4["预算拆分<br/>交通 / 住宿 / 餐饮 / 门票"]
+        P5["地图与天气补全<br/>坐标 · POI · 路线 · 预报"]
+    end
+
+    subgraph A["AI 对话助手"]
+        A1["携带当前页面与行程上下文"]
+        A2["模型自主决定调用哪个工具"]
+        A3["天气 / 地图 / 攻略 / 联网搜索"]
+    end
+
+    subgraph D["数据"]
+        D1[("本地攻略<br/>6 城 Markdown")]
+        D2[("向量索引<br/>ChromaDB")]
+        D3[("历史行程<br/>SQLite")]
+        D4[("查询缓存<br/>Redis 可选")]
+    end
+
+    U1 --> P1 --> P2 --> P3 --> P4 --> P5 --> U2
+    U2 --> U3 --> P3
+    U2 --> U4 --> D3
+    U5 --> A1 --> A2 --> A3
+    A3 --> U5
+    D1 -.离线入库.-> D2
+    D2 --> P2
+    A3 --> D2
+    P2 <-.-> D4
+    P5 <-.-> D4
 ```
+
+> 更多分层视图、调用栈与降级路径见 [`docs/`](./docs/) 下的架构图文档。
 
 数据流路径：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图 / 天气服务补全展示信息 → 前端展示地图、天气、预算和每日行程；对话助手经统一工具层按需查询天气、地图、攻略与联网结果；用户可保存、编辑与查看历史行程。
 
@@ -93,41 +136,264 @@
 
 ### RAG 检索流程
 
-**离线阶段**
+下面是本项目 RAG 从离线入库到在线检索、缓存、降级与 Planner 注入的完整流程图。图形使用内联 SVG，可直接在 README 源码中编辑。
+
+<svg viewBox="0 0 1600 1160" width="100%" role="img" aria-labelledby="ragTitle ragDesc" xmlns="http://www.w3.org/2000/svg">
+  <title id="ragTitle">旅游项目 RAG 检索整体流程</title>
+  <desc id="ragDesc">图中包含离线 Markdown 切块入库、在线 Query Rewrite、主查询 top5、住宿和餐饮查询 top2、Chroma 召回、Rerank、缓存、降级以及 Planner 注入。</desc>
+  <defs>
+    <marker id="aBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#185FA5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="aGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#0F6E56" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="aGray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect x="20" y="20" width="1560" height="1120" rx="20" fill="#FFFFFF" stroke="#D3D1C7" stroke-width="1"/>
+  <text x="50" y="57" fill="#2C2C2A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="24" font-weight="500">TravelPlanAssistant · RAG 检索全景</text>
+  <text x="50" y="84" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15">离线准备知识 → 在线改写与三轮检索 → 合并上下文 → Planner 生成 → 名称回查</text>
+
+  <rect x="40" y="110" width="1520" height="268" rx="16" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+  <text x="65" y="142" fill="#0C447C" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="19" font-weight="500">A. 离线阶段：攻略入库与增量同步</text>
+  <text x="65" y="166" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14">手动入口：backend/scripts/ingest_data.py · 日常更新：knowledge_poller.py</text>
+
+  <g>
+    <rect x="65" y="190" width="180" height="86" rx="10" fill="#FFFFFF" stroke="#185FA5"/>
+    <text x="155" y="215" text-anchor="middle" fill="#0C447C" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">1. 本地攻略</text>
+    <text x="155" y="239" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">backend/data/*.md*</text>
+    <text x="155" y="261" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">当前 6 个目的地</text>
+  </g>
+  <path d="M245 233H285" fill="none" stroke="#185FA5" stroke-width="2" marker-end="url(#aBlue)"/>
+  <g>
+    <rect x="292" y="190" width="220" height="86" rx="10" fill="#FFFFFF" stroke="#185FA5"/>
+    <text x="402" y="215" text-anchor="middle" fill="#0C447C" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">2. 文档登记</text>
+    <text x="402" y="239" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">文件名 → destination</text>
+    <text x="402" y="261" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">全文 SHA-256 hash</text>
+  </g>
+  <path d="M512 233H552" fill="none" stroke="#185FA5" stroke-width="2" marker-end="url(#aBlue)"/>
+  <g>
+    <rect x="559" y="178" width="250" height="110" rx="10" fill="#FFFFFF" stroke="#185FA5"/>
+    <text x="684" y="204" text-anchor="middle" fill="#0C447C" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">3. Markdown 语义切块</text>
+    <text x="684" y="228" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">只按 ## / ### 标题切分</text>
+    <text x="684" y="250" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">无长度上限 · 无 overlap</text>
+    <text x="684" y="272" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">当前共 79 个 Chunk</text>
+  </g>
+  <path d="M809 233H849" fill="none" stroke="#185FA5" stroke-width="2" marker-end="url(#aBlue)"/>
+  <g>
+    <rect x="856" y="178" width="260" height="110" rx="10" fill="#FFFFFF" stroke="#185FA5"/>
+    <text x="986" y="204" text-anchor="middle" fill="#0C447C" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">4. 构造 Chunk</text>
+    <text x="986" y="228" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">ID = MD5(来源|标题|正文)</text>
+    <text x="986" y="250" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">title · text · document_id</text>
+    <text x="986" y="272" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">content_hash · destination</text>
+  </g>
+  <path d="M1116 233H1156" fill="none" stroke="#185FA5" stroke-width="2" marker-end="url(#aBlue)"/>
+  <g>
+    <rect x="1163" y="190" width="190" height="86" rx="10" fill="#FFFFFF" stroke="#185FA5"/>
+    <text x="1258" y="215" text-anchor="middle" fill="#0C447C" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">5. Embedding</text>
+    <text x="1258" y="239" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">标题 + 换行 + 正文</text>
+    <text x="1258" y="261" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">批量生成文档向量</text>
+  </g>
+  <path d="M1353 233H1393" fill="none" stroke="#185FA5" stroke-width="2" marker-end="url(#aBlue)"/>
+  <g>
+    <rect x="1400" y="178" width="135" height="110" rx="10" fill="#FFFFFF" stroke="#185FA5"/>
+    <text x="1468" y="204" text-anchor="middle" fill="#0C447C" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">6. Chroma</text>
+    <text x="1468" y="228" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">cosine</text>
+    <text x="1468" y="250" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">向量 + 文本</text>
+    <text x="1468" y="272" text-anchor="middle" fill="#185FA5" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">+ metadata</text>
+  </g>
+  <path d="M986 288V328H1215" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#aGray)"/>
+  <rect x="1222" y="305" width="313" height="48" rx="9" fill="#F1EFE8" stroke="#888780"/>
+  <text x="1378" y="325" text-anchor="middle" fill="#444441" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">SQLite 文档清单 kb_documents</text>
+  <text x="1378" y="344" text-anchor="middle" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">hash · chunk_count · destination · status</text>
+  <rect x="65" y="305" width="1040" height="48" rx="9" fill="#FFFFFF" stroke="#B4B2A9"/>
+  <text x="585" y="325" text-anchor="middle" fill="#444441" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">增量同步：新增→入库｜修改→删旧后重建｜删除→清 Chunk｜未变→跳过</text>
+  <text x="585" y="344" text-anchor="middle" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">成功应用变更后清除 rag:guide:* 与 rerank:* 缓存，避免旧知识污染</text>
+
+  <rect x="40" y="398" width="1520" height="702" rx="16" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+  <text x="65" y="430" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="19" font-weight="500">B. 在线阶段：一次行程生成的三轮检索</text>
+  <text x="65" y="454" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14">入口：collect_trip_context() → get_destination_guide_context()</text>
+
+  <g>
+    <rect x="65" y="480" width="220" height="100" rx="10" fill="#FFFFFF" stroke="#0F6E56"/>
+    <text x="175" y="505" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">1. 用户旅行需求</text>
+    <text x="175" y="529" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">destination · preferences</text>
+    <text x="175" y="551" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">pace · special_notes</text>
+    <text x="175" y="572" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">例：大理·拍照·日落·轻松</text>
+  </g>
+  <path d="M285 530H325" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="332" y="480" width="260" height="100" rx="10" fill="#FFFFFF" stroke="#0F6E56"/>
+    <text x="462" y="505" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">2. Query Rewrite</text>
+    <text x="462" y="529" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">优先 LLM 关键词改写</text>
+    <text x="462" y="551" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">失败 → retrieval_rules.json</text>
+    <text x="462" y="572" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">输出：大理 日落 洱海 拍照</text>
+  </g>
+  <path d="M592 530H632" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <rect x="639" y="470" width="890" height="130" rx="12" fill="#FFFFFF" stroke="#0F6E56"/>
+  <text x="659" y="496" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">3. 外层分成三条 Query；每条都会独立执行下方“单轮检索内核”</text>
+  <g>
+    <rect x="659" y="515" width="260" height="64" rx="9" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="789" y="537" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">主需求检索 · top_k = 5</text>
+    <text x="789" y="560" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">候选 candidate_k = 10</text>
+  </g>
+  <g>
+    <rect x="944" y="515" width="260" height="64" rx="9" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="1074" y="537" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">住宿专项 · top_k = 2</text>
+    <text x="1074" y="560" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">“目的地 住宿 酒店 民宿” · 候选 6</text>
+  </g>
+  <g>
+    <rect x="1229" y="515" width="280" height="64" rx="9" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="1369" y="537" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">餐饮专项 · top_k = 2</text>
+    <text x="1369" y="560" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">“目的地 餐饮 美食 餐厅” · 候选 6</text>
+  </g>
+  <path d="M1084 600V628" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+
+  <rect x="65" y="635" width="1464" height="270" rx="14" fill="#FFFFFF" stroke="#0F6E56"/>
+  <text x="85" y="662" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="16" font-weight="500">4. 单轮检索内核 × 3</text>
+  <g>
+    <rect x="85" y="685" width="185" height="82" rx="9" fill="#F1EFE8" stroke="#888780"/>
+    <text x="178" y="708" text-anchor="middle" fill="#444441" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">RAG 结果缓存</text>
+    <text x="178" y="731" text-anchor="middle" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">destination + query</text>
+    <text x="178" y="751" text-anchor="middle" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">+ top_k</text>
+  </g>
+  <path d="M270 726H306" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="313" y="685" width="180" height="82" rx="9" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="403" y="708" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">Query Embedding</text>
+    <text x="403" y="731" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">检索词 → 向量</text>
+    <text x="403" y="751" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">Ollama / API</text>
+  </g>
+  <path d="M493 726H529" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="536" y="674" width="235" height="104" rx="9" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="654" y="698" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">Chroma 向量召回</text>
+    <text x="654" y="721" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">cosine 相似度</text>
+    <text x="654" y="742" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">where={destination: 当前城市}</text>
+    <text x="654" y="763" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">候选=max(top_k×2, 6)</text>
+  </g>
+  <path d="M771 726H807" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="814" y="685" width="190" height="82" rx="9" fill="#F1EFE8" stroke="#888780"/>
+    <text x="909" y="708" text-anchor="middle" fill="#444441" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">Rerank 缓存</text>
+    <text x="909" y="731" text-anchor="middle" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">query + 候选</text>
+    <text x="909" y="751" text-anchor="middle" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">来源标题哈希</text>
+  </g>
+  <path d="M1004 726H1040" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="1047" y="674" width="225" height="104" rx="9" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="1160" y="698" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">qwen3-rerank 精排</text>
+    <text x="1160" y="721" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">先过滤“文档开头”</text>
+    <text x="1160" y="742" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">联合阅读 Query + Chunk</text>
+    <text x="1160" y="763" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">截取本轮最终 top_k</text>
+  </g>
+  <path d="M1272 726H1308" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="1315" y="685" width="194" height="82" rx="9" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="1412" y="708" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">格式化 Context</text>
+    <text x="1412" y="731" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">[来源 | 标题]</text>
+    <text x="1412" y="751" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">Chunk 正文</text>
+  </g>
+
+  <path d="M403 767V824H536" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-dasharray="7 6" marker-end="url(#aGray)"/>
+  <rect x="543" y="801" width="228" height="62" rx="9" fill="#F1EFE8" stroke="#888780"/>
+  <text x="657" y="824" text-anchor="middle" fill="#444441" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500">向量链无结果</text>
+  <text x="657" y="846" text-anchor="middle" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">→ destination 过滤的关键词召回</text>
+  <path d="M1160 778V824H1272" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-dasharray="7 6" marker-end="url(#aGray)"/>
+  <rect x="1279" y="801" width="230" height="62" rx="9" fill="#F1EFE8" stroke="#888780"/>
+  <text x="1394" y="824" text-anchor="middle" fill="#444441" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500">Rerank API 失败</text>
+  <text x="1394" y="846" text-anchor="middle" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">→ 标题/正文/领域规则打分</text>
+  <text x="85" y="888" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">缓存命中：RAG 缓存直接跳过后续全部步骤；Rerank 缓存只跳过 qwen3-rerank。Redis 不可用则跳过缓存，不影响主链。</text>
+
+  <path d="M1412 905V935" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="1010" y="942" width="250" height="72" rx="10" fill="#FFFFFF" stroke="#0F6E56"/>
+    <text x="1135" y="966" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">5. 三轮结果合并去重</text>
+    <text x="1135" y="990" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">完整 Context 文本去重</text>
+  </g>
+  <path d="M1260 978H1296" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="1303" y="932" width="226" height="92" rx="10" fill="#FFFFFF" stroke="#0F6E56"/>
+    <text x="1416" y="956" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">6. Planner Prompt</text>
+    <text x="1416" y="979" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">攻略正文 contexts</text>
+    <text x="1416" y="999" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">+ 真实酒店/餐厅名称</text>
+  </g>
+  <path d="M1416 1024V1051" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="1050" y="1058" width="220" height="58" rx="10" fill="#FFFFFF" stroke="#0F6E56"/>
+    <text x="1160" y="1080" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">PlannerDraft</text>
+    <text x="1160" y="1101" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">summary · days · tips</text>
+  </g>
+  <path d="M1270 1087H1306" fill="none" stroke="#0F6E56" stroke-width="2" marker-end="url(#aGreen)"/>
+  <g>
+    <rect x="1313" y="1052" width="216" height="70" rx="10" fill="#FFFFFF" stroke="#0F6E56"/>
+    <text x="1421" y="1075" text-anchor="middle" fill="#085041" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500">名称硬校验</text>
+    <text x="1421" y="1097" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">无攻略出处 → 丢弃</text>
+    <text x="1421" y="1115" text-anchor="middle" fill="#0F6E56" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">真实候选替换或留空</text>
+  </g>
+
+  <rect x="65" y="942" width="880" height="174" rx="12" fill="#FFFFFF" stroke="#B4B2A9"/>
+  <text x="85" y="969" fill="#444441" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500">关键参数与边界</text>
+  <text x="85" y="996" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">主检索：top_k=5，候选 10；住宿专项：top_k=2，候选 6；餐饮专项：top_k=2，候选 6。</text>
+  <text x="85" y="1022" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">RAG 结果缓存与 Rerank 缓存默认 TTL：21600 秒；知识更新后统一失效。</text>
+  <text x="85" y="1048" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">关键词检索是 Chroma 无结果时的 fallback，不与向量结果混合，所以不是 Hybrid Search。</text>
+  <text x="85" y="1074" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">RAG 只提供证据；Planner 生成草稿；trip_service.py 负责最终校验、预算与结构化组装。</text>
+  <text x="85" y="1100" fill="#5F5E5A" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="13">对话工具 search_travel_guide 是另一入口：只检索 1 轮，默认 top_k=3，不走行程生成的三轮补充检索。</text>
+</svg>
+
+**离线阶段**（`scripts/ingest_data.py`，手动执行）
 
 ```text
-本地 Markdown 攻略 → 按标题切块（49 个片段） → text-embedding-v4 转向量 → 写入 ChromaDB
+本地 Markdown 攻略 → 按 ## / ### 标题切块 → Embedding 转向量 → 写入 ChromaDB
 ```
 
-这一步只做一次，数据入库后就不再动了。
+切块只认二级和三级标题，不设长度上限、不做重叠；每个文件首个标题之前的内容单独成块，标题记为"文档开头"。当前 6 个攻略共切出 79 块。写入 Chroma 的 metadata 有 5 个字段：`title`、`source`、`document_id`、`content_hash`、`destination`。Embedding 模型由 `EMBEDDING_MODEL` 决定，也可切到本地 Ollama。
 
-**在线阶段**
+这一步只在攻略内容变化时执行；日常增量同步见下方「知识库同步」。
+
+**在线阶段**（每次请求）
 
 ```text
 用户输入（目的地 / 偏好 / 节奏 / 备注）
     ↓
 ① Query Rewrite（LLM-based / 规则 fallback）
     输出：检索关键词，如"大理 美食 拍照 古城 洱海"
+    规则 fallback 读 data/retrieval_rules.json，由 special_notes 触发
     ↓
-② Embedding（同一个 text-embedding-v4）
+② 读 RAG 结果缓存（Redis）
+    key = rag:guide:{目的地}:{归一化 query}:{top_k}
+    命中则直接返回，③～⑥ 全部跳过
+    ↓
+③ Query Embedding
     把检索关键词转向量，才能和 ChromaDB 里的文档向量做相似度计算
     ↓
-③ 向量召回（ChromaDB）
-    用向量相似度找到 candidate_k 候选片段（candidate_k = max(RAG_TOP_K×2, 6)）
+④ 向量召回（ChromaDB）
+    where={"destination": ...} 在召回阶段就隔离城市
+    candidate_k = max(top_k×2, 6)
+    Chroma 不可用或向量化失败时，降级为全文关键词计分召回
     ↓
-④ 噪声预过滤
-    去掉"文档开头"等低信息量片段，避免浪费 rerank 的 API 调用
+⑤ 读 Rerank 缓存（Redis）
+    key = rerank:{归一化 query}:{候选来源哈希}
+    命中则直接按缓存分数重排，⑥ 跳过
     ↓
-⑤ Cross-encoder Rerank（qwen3-rerank / 规则 fallback）
-    语义级重排序，选出 RAG_TOP_K 条最相关片段
+⑥ Cross-encoder Rerank（DashScope / 规则 fallback）
+    调用前先剔除"文档开头"这类低信息量片段，避免浪费 API 调用
+    失败时降级为规则打分（标题命中 +3、正文命中 +1、文档开头 −8、跨城市 −5）
     ↓
-⑥ 写入 Redis 缓存
-    RAG 缓存：query → top-k 文本
-    Rerank 缓存：query + 候选哈希 → 排序分数
+⑦ 写两级缓存，返回 top-k 文本
     ↓
-⑦ 返回 top-k 文本给 LLM
-    和用户信息一起组装成 prompt，调 qwen-max 生成行程
+⑧ 名称回查校验
+    模型返回行程后，逐个核对景点与餐饮名是否出自本次检索到的攻略；
+    对不上的丢弃，退回真实候选或留空并写明原因
 ```
+
+需要注意的两点：
+
+- **缓存是先读后写，读点在链路前段而不是末尾。** 命中缓存时 token 统计会归零，因此统计值反映的是本次实际消耗，低于该 query 的历史累计消耗。
+- **一次行程生成会跑 3 轮检索**：改写后的主查询（`top_k=5`），外加硬编码的住宿查询和餐饮查询（各 `top_k=2`）。对话侧的 `search_travel_guide` 工具只跑 1 轮，`top_k=3`。
 
 ---
 
@@ -161,7 +427,7 @@ AI Agent Travel Assistant/
 │   │   │   ├── document_registry.py      # 知识库文档清单与内容哈希
 │   │   │   ├── knowledge_poller.py       # 本地攻略变更检测与增量同步
 │   │   │   └── knowledge_validation.py   # 攻略、规则与评估配置一致性校验
-│   │   ├── tools/      
+│   │   ├── tools/    
 │   │   │   ├── base.py                   # ToolResult 统一返回结构
 │   │   │   ├── registry.py               # 工具注册表、规格与执行入口
 │   │   │   ├── knowledge_tools.py        # 本地攻略检索工具
@@ -175,6 +441,7 @@ AI Agent Travel Assistant/
 │   │       ├── chat_service.py           # 对话服务编排
 │   │       ├── recommendation_service.py # 热门目的地推荐与天气排序
 │   │       ├── fallback_candidates.py    # 从攻略上下文提取真实候选
+│   │       ├── name_guard.py             # 校验模型输出的名称是否出自攻略上下文
 │   │       ├── map_service.py            # 高德 POI、路线与图片
 │   │       ├── weather_service.py        # 天气服务
 │   │       ├── storage_service.py        # SQLite 行程存储
@@ -272,6 +539,69 @@ npm run dev
 
 ## 🔄 关键业务链路
 
-### 显式编排工作流
+项目里同时存在两种编排范式，选择依据是任务的确定性。
 
-项目采用显式编排（而非 Agent 自主决策）的方式组织业务流程，每个步骤由 `trip_service.py` 按固定顺序调用，适合当前业务确定性强、步骤可预期的场景。
+### 显式编排：行程生成
+
+行程生成的步骤是固定的，每一步都必须执行且顺序不能变，因此由 `trip_service.py` 按固定顺序调用，不交给模型决策：
+
+```text
+POST /trip/generate
+  → 查询改写（LLM / 规则）
+  → 3 轮攻略检索（主查询 + 住宿 + 餐饮）
+  → Planner LLM 产出结构化草稿
+  → 名称回查校验，丢弃无法归因的名称
+  → 逐天组装 + 门票估算 + 预算按权重分摊
+  → 可选的高德地图补全，并据实际路线回算交通费
+  → 返回 Itinerary（不落库）
+```
+
+保存是用户的显式动作，走单独的 `POST /trip/save`；因此 `POST /trip/edit` 需要前端把当前完整行程回传。
+
+### 自主决策：对话助手
+
+对话无法预知用户会问什么，只能由模型决定调用哪些工具：
+
+```text
+POST /chat/stream
+  → 裁剪历史（最多 20 条，单条 4000 字符）
+  → 拼装 system prompt + 当前页面与行程只读上下文
+  → 最多 3 轮 tool calling，每轮串行执行工具并把结果回灌
+  → 逐 token 流式输出最终回答
+```
+
+轮次用尽后会换一个未绑定工具的模型实例再请求一次，并追加「只基于已有工具结果作答」的指令，确保用户一定拿得到回答。
+
+SSE 事件共 6 种：`status`（thinking / tool / streaming）、`tool_start`、`tool_result`、`token`、`error`、`done`。流的最后一帧一定是 `done`。
+
+### 逐 token 流式的实现要点
+
+模型偶尔会把 `<tool_call>`、`<function=...>` 这类标记泄漏成正文。逐字下发时这类标记可能正好被切在两个 chunk 之间，因此下发前会计算「安全前缀」：把有可能正在形成标记的尾部留在缓冲区，等下一个 chunk 到达再判断。一旦确认泄漏就停止下发并切到工具摘要兜底；已经下发的干净前缀无法撤回，兜底内容追加在其后而不是整段替换。
+
+---
+
+## ⚠️ 已知边界
+
+这些是当前实现的真实边界，不是待办清单：
+
+- 默认 `REDIS_ENABLED=false`、`ENABLE_AMAP_ENRICHMENT=false`，两者都是加速项/增强项而非主链路依赖。
+- 本地 RAG 不是开箱可用，首次必须执行 `scripts/ingest_data.py` 完成入库。
+- 知识库同步没有后台常驻任务，只有前台 CLI 脚本的循环。
+- 住宿不由模型产出：`PlannerDraft` 没有 hotel 字段，酒店取自攻略候选的第一个，且全程所有天共用同一家。
+- 行程编辑不走 RAG，`TripEditRequest.trip_id` 未被使用，编辑结果不落库。
+- `trip_id` 由「目的地 + 出发日期」拼成，同目的地同出发日再次保存会覆盖前一份。
+- MCP server 与 `tools/registry.py` 共用底层实现，但工具描述与参数默认值是各自维护的，存在分叉风险。
+- Rerank 的 endpoint 与 API Key 复用 `LLM_API_KEY`，不可单独配置。
+- `.env.example` 与 `config.py` 的默认值不完全一致（`LLM_MODEL`、`EMBEDDING_MODEL`、`REDIS_ENABLED`、`LLM_BASE_URL`），没有 `.env` 时行为会不同。
+- 本地 Markdown 攻略用于 RAG 参考，不等同于已逐条核验的实时 POI、门票、餐饮或住宿数据。
+
+---
+
+## ✅ 运行测试
+
+```powershell
+cd backend
+pytest
+```
+
+测试全部使用伪造的模型与外部服务，不联网、不消耗 API 额度。
