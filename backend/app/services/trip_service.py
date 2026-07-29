@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date as DateType, timedelta
 
 from app.agents.trip_planner_agent import (
@@ -22,6 +23,15 @@ from app.models.schemas import (
 )
 from app.services.map_service import enrich_itinerary_with_map_data
 from app.services.fallback_candidates import extract_fallback_candidates
+from app.services.name_guard import (
+    KIND_MEALS,
+    KIND_SPOTS,
+    build_guard_index,
+    verify_name,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 TECHNICAL_TIP_KEYWORDS = (
@@ -270,6 +280,11 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
     fallback_hotel_names = fallback_candidates["hotels"]
     fallback_hotel_name = fallback_hotel_names[0] if fallback_hotel_names else None
 
+    # 模型产出的名称必须能在攻略上下文里找到出处，否则视为编造并丢弃。
+    # prompt 里的「只用真实名称」是软约束，这里把它变成硬校验。
+    guard_index = build_guard_index(rag_contexts, fallback_candidates)
+    rejected_names: list[str] = []
+
     raw_days: list[dict[str, object]] = []
     ticket_costs: list[float] = []
     for index in range(day_count):
@@ -279,36 +294,41 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         if llm_draft is not None:
             llm_day = next((item for item in llm_draft.days if item.day_index == day_number), None)
 
-        spot_name = (
-            llm_day.spot_name
-            if llm_day is not None
-            else fallback_spot_names[index] if index < len(fallback_spot_names) else None
-        )
+        spot_verified = False
+        meal_verified = False
+        if llm_day is not None:
+            spot_verified = verify_name(llm_day.spot_name, guard_index, kind=KIND_SPOTS)
+            meal_verified = verify_name(llm_day.meal_name, guard_index, kind=KIND_MEALS)
+            if llm_day.spot_name and not spot_verified:
+                rejected_names.append(llm_day.spot_name)
+            if llm_day.meal_name and not meal_verified:
+                rejected_names.append(llm_day.meal_name)
+
+        # 校验不通过时退回攻略中确实存在的候选；没有候选就留空，不做模板填充。
+        if spot_verified and llm_day is not None:
+            spot_name = llm_day.spot_name
+            spot_description = llm_day.spot_description
+        else:
+            spot_name = fallback_spot_names[index] if index < len(fallback_spot_names) else None
+            spot_description = "根据本地攻略检索到的景点信息安排。" if spot_name else None
+
+        if meal_verified and llm_day is not None:
+            meal_name = llm_day.meal_name
+            meal_note = llm_day.meal_notes
+        else:
+            meal_name = fallback_meal_names[index] if index < len(fallback_meal_names) else None
+            meal_note = "来自本地攻略的餐饮条目。" if meal_name else None
+
         theme = llm_day.theme if llm_day is not None else f"{request.destination} 第 {day_number} 天轻松游"
-        spot_description = (
-            llm_day.spot_description
-            if llm_day is not None
-            else "根据本地攻略检索到的景点信息安排。" if spot_name else None
-        )
-        meal_name = (
-            llm_day.meal_name
-            if llm_day is not None
-            else fallback_meal_names[index] if index < len(fallback_meal_names) else None
-        )
-        meal_note = (
-            llm_day.meal_notes
-            if llm_day is not None
-            else "来自本地攻略的餐饮条目。" if meal_name else None
-        )
         daily_note = (
             llm_day.daily_note
             if llm_day is not None
             else "今天以轻松游览为主，建议根据体力和天气灵活调整停留时间。"
         )
         unavailable_notes: list[str] = []
-        if llm_day is None and not spot_name:
+        if not spot_name:
             unavailable_notes.append("未从当前攻略检索到景点信息，今天未安排景点。")
-        if llm_day is None and not meal_name:
+        if not meal_name:
             unavailable_notes.append("未从当前攻略检索到餐饮信息，今天未安排餐饮。")
         if fallback_hotel_name is None:
             unavailable_notes.append("未从当前攻略检索到住宿信息，未安排住宿。")
@@ -440,6 +460,23 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         "Itinerary is assembled by trip_service.py and can optionally use LangChain structured output.",
     ]
     source_notes.extend(rag_contexts[:2])
+
+    if not rag_contexts:
+        source_notes.append(
+            "本次未检索到任何本地攻略上下文，因此不会填充具体景点与餐饮。"
+            "若这不符合预期，请先执行 scripts/ingest_data.py 完成知识库入库。"
+        )
+    if rejected_names:
+        unique_rejected = list(dict.fromkeys(rejected_names))
+        logger.warning(
+            "已丢弃 %s 个无法在攻略上下文中核验的名称: %s",
+            len(unique_rejected),
+            unique_rejected,
+        )
+        source_notes.append(
+            f"已过滤 {len(unique_rejected)} 个无法在本地攻略中核验的名称，"
+            "相应位置改用攻略中的真实条目或留空。"
+        )
 
     tips = (
         llm_draft.tips

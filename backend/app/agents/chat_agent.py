@@ -203,21 +203,136 @@ def _normalize_tool_calls(ai_message: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+_TOOL_CALL_MARKERS = (
+    "<tool_call",
+    "</tool_call>",
+    "<function=",
+    "</function>",
+    "<parameter=",
+    "tool_call>",
+    "functioncall",
+)
+
+_MAX_MARKER_LENGTH = max(len(marker) for marker in _TOOL_CALL_MARKERS)
+
+
 def _looks_like_raw_tool_call(text: str) -> bool:
     """识别模型把 tool call 泄漏成正文（如 <tool_call>/<function=...>）。"""
     lowered = (text or "").strip().lower()
     if not lowered:
         return False
-    markers = (
-        "<tool_call",
-        "</tool_call>",
-        "<function=",
-        "</function>",
-        "<parameter=",
-        "tool_call>",
-        "functioncall",
+    return any(marker in lowered for marker in _TOOL_CALL_MARKERS)
+
+
+def _safe_prefix_length(buffer: str) -> int:
+    """返回可以安全下发的前缀长度。
+
+    逐字下发时泄漏标记可能正好被切在两个 chunk 中间（先收到 "<tool"，
+    下一个 chunk 才是 "_call>"）。这里把「可能正在形成标记」的尾部留在缓冲区，
+    只下发之前的部分，等下一个 chunk 到达再判断。
+
+    切片按原字符串索引计算，lower() 只作用于比较用的副本，
+    避免个别字符大小写转换后长度变化导致索引错位。
+    """
+    for keep in range(min(len(buffer), _MAX_MARKER_LENGTH - 1), 0, -1):
+        tail = buffer[-keep:].lower()
+        if any(marker.startswith(tail) for marker in _TOOL_CALL_MARKERS):
+            return len(buffer) - keep
+    return len(buffer)
+
+
+def _has_tool_calls(message: Any) -> bool:
+    """流式累积过程中判断本轮模型是否在发起工具调用。"""
+    if message is None:
+        return False
+    return bool(
+        getattr(message, "tool_calls", None) or getattr(message, "tool_call_chunks", None)
     )
-    return any(marker in lowered for marker in markers)
+
+
+class _StreamState:
+    """一次流式模型调用的累积结果。"""
+
+    __slots__ = ("message", "text", "emitted_any", "suppressed")
+
+    def __init__(self) -> None:
+        self.message: Any = None
+        self.text: str = ""
+        self.emitted_any: bool = False
+        self.suppressed: bool = False
+
+
+def _emit_stream(
+    chunks: Any,
+    state: _StreamState,
+    *,
+    stop_on_tool_calls: bool,
+) -> Iterator[dict[str, Any]]:
+    """按安全前缀增量下发模型文本，同时把累积结果写进 state。
+
+    出现工具调用或 tool-call 泄漏时立即停止下发，但继续消费流以拿到完整消息，
+    供上层判断本轮该执行工具还是收尾。
+    """
+    buffer = ""
+    emitted = 0
+
+    for chunk in chunks:
+        state.message = chunk if state.message is None else state.message + chunk
+        text = _extract_text_content(getattr(chunk, "content", None))
+        if text:
+            buffer += text
+
+        if state.suppressed:
+            continue
+        if stop_on_tool_calls and _has_tool_calls(state.message):
+            state.suppressed = True
+            continue
+        if _looks_like_raw_tool_call(buffer):
+            state.suppressed = True
+            continue
+
+        safe_length = _safe_prefix_length(buffer)
+        if safe_length <= emitted:
+            continue
+        piece = buffer[emitted:safe_length]
+        if not state.emitted_any:
+            piece = piece.lstrip()
+            if not piece:
+                # 开头的纯空白先攒着，避免把空回答提前下发
+                continue
+        emitted = safe_length
+        state.emitted_any = True
+        yield {"type": "token", "text": piece}
+
+    # 流正常结束，补齐守卫留在缓冲区里的尾部
+    if not state.suppressed and len(buffer) > emitted:
+        piece = buffer[emitted:]
+        if not state.emitted_any:
+            piece = piece.lstrip()
+        if piece.strip():
+            state.emitted_any = True
+            yield {"type": "token", "text": piece}
+
+    state.text = buffer
+
+
+def _to_ai_message(message: Any) -> Any:
+    """把流式累积得到的 AIMessageChunk 归一为普通 AIMessage。
+
+    累积出来的 chunk 里 additional_kwargs 可能带着拼到一半的 function_call 片段，
+    回灌进消息历史时个别供应商会报错，因此只保留 content / tool_calls / id。
+    """
+    try:
+        from langchain_core.messages import AIMessage, AIMessageChunk
+    except ImportError:  # pragma: no cover - 依赖缺失时保持原样
+        return message
+    if not isinstance(message, AIMessageChunk):
+        return message
+    return AIMessage(
+        content=message.content,
+        tool_calls=list(getattr(message, "tool_calls", None) or []),
+        id=getattr(message, "id", None),
+    )
 
 
 def _fallback_answer_from_tool_summaries(summaries: list[str]) -> str:
@@ -254,22 +369,30 @@ def _stream_final_answer(
             )
         )
 
-    parts: list[str] = []
-    for chunk in stream_llm.stream(final_messages):
-        text = _extract_text_content(getattr(chunk, "content", None))
-        if text:
-            parts.append(text)
+    state = _StreamState()
+    yield from _emit_stream(
+        stream_llm.stream(final_messages),
+        state,
+        stop_on_tool_calls=False,
+    )
 
-    full = "".join(parts).strip()
-    if not full or _looks_like_raw_tool_call(full):
-        logger.warning(
-            "final answer missing or leaked tool markup (len=%s), using tool summary fallback",
-            len(full),
-        )
-        full = _fallback_answer_from_tool_summaries(tool_summaries)
+    if not state.suppressed and state.text.strip():
+        return
 
-    if full:
-        yield {"type": "token", "text": full}
+    logger.warning(
+        "final answer missing or leaked tool markup (len=%s, streamed=%s), "
+        "using tool summary fallback",
+        len(state.text),
+        state.emitted_any,
+    )
+    fallback = _fallback_answer_from_tool_summaries(tool_summaries)
+    if not fallback:
+        return
+    # 已下发的干净前缀无法撤回，因此在其后追加兜底而不是整段替换
+    yield {
+        "type": "token",
+        "text": f"\n\n{fallback}" if state.emitted_any else fallback,
+    }
 
 
 def iter_assistant_events(
@@ -297,16 +420,38 @@ def iter_assistant_events(
         raise ValueError("消息列表无效：至少需要一条用户消息。")
 
     tool_defs = _openai_tool_definitions()
-    llm_with_tools = llm.bind_tools(tool_defs)
+    streaming_llm_with_tools = stream_llm.bind_tools(tool_defs)
+    blocking_llm_with_tools = llm.bind_tools(tool_defs)
     tool_summaries: list[str] = []
     used_tools = False
 
     for round_index in range(MAX_TOOL_ROUNDS):
-        ai_message = llm_with_tools.invoke(lc_messages)
+        # 这一轮也走流式：绝大多数对话不需要工具，直接在第一轮就把回答逐字发出去。
+        # 一旦累积消息里出现 tool_call，_emit_stream 会立即停止下发，改由工具循环接管。
+        state = _StreamState()
+        try:
+            yield from _emit_stream(
+                streaming_llm_with_tools.stream(lc_messages),
+                state,
+                stop_on_tool_calls=True,
+            )
+        except Exception:
+            if state.emitted_any:
+                raise
+            # 供应商不支持流式、或流式中途失败且尚未下发任何内容：退回一次性调用
+            logger.warning("streaming round failed, falling back to invoke", exc_info=True)
+            state = _StreamState()
+            state.message = blocking_llm_with_tools.invoke(lc_messages)
+            state.text = _extract_text_content(getattr(state.message, "content", None))
+
+        ai_message = _to_ai_message(state.message)
         tool_calls = _normalize_tool_calls(ai_message)
-        content_text = _extract_text_content(getattr(ai_message, "content", None)).strip()
+        content_text = state.text.strip()
 
         if not tool_calls:
+            # 本轮已经逐字下发完最终回答，不要再重复输出一遍
+            if state.emitted_any:
+                return
             # 模型已给出最终文本（且不是 tool-call 泄漏）时直接使用，避免二次生成跑偏
             if content_text and not _looks_like_raw_tool_call(content_text):
                 yield {"type": "token", "text": content_text}
