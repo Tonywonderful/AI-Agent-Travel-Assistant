@@ -8,9 +8,13 @@ from app.config import (
     LLM_BASE_URL,
     LLM_MAX_RETRIES,
     LLM_MODEL,
+    LLM_PROVIDER,
     LLM_TIMEOUT_SECONDS,
+    OPENCODE_API_KEY,
+    OPENCODE_BASE_URL,
     RAG_TOP_K,
 )
+from app.llm import build_chat_llm
 from app.rag.retriever import retrieve_travel_guide
 
 
@@ -98,17 +102,14 @@ def _extract_note_keywords(special_notes: str | None, destination: str | None = 
 
 
 def _build_chat_llm():
-    if not LLM_API_KEY:
-        return None
-    try:
-        from langchain_openai import ChatOpenAI
-    except ImportError:
-        return None
-    return ChatOpenAI(
+    return build_chat_llm(
+        provider=LLM_PROVIDER,
         model=LLM_MODEL,
-        temperature=0.2,
         api_key=LLM_API_KEY,
-        base_url=LLM_BASE_URL or None,
+        base_url=LLM_BASE_URL,
+        opencode_api_key=OPENCODE_API_KEY,
+        opencode_base_url=OPENCODE_BASE_URL,
+        temperature=0.2,
         timeout=LLM_TIMEOUT_SECONDS,
         max_retries=LLM_MAX_RETRIES,
     )

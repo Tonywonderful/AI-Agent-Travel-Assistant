@@ -19,9 +19,13 @@ from app.config import (
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
+    LLM_PROVIDER,
     LLM_TIMEOUT_SECONDS,
     OLLAMA_EMBED_URL,
+    OPENCODE_API_KEY,
+    OPENCODE_BASE_URL,
 )
+from app.llm import resolve_chat_model_config
 
 
 def mask_api_key(value: str) -> str:
@@ -125,16 +129,25 @@ def main() -> int:
 
     if args.skip_llm and args.skip_embedding:
         parser.error("--skip-llm 与 --skip-embedding 不能同时使用。")
-    if not args.skip_llm and not LLM_API_KEY:
-        print("未检测到 LLM_API_KEY，请先在 backend/.env 中配置 API Key。")
+
+    _, resolved_api_key, resolved_base_url = resolve_chat_model_config(
+        provider=LLM_PROVIDER,
+        model=LLM_MODEL,
+        api_key=LLM_API_KEY,
+        base_url=LLM_BASE_URL,
+        opencode_api_key=OPENCODE_API_KEY,
+        opencode_base_url=OPENCODE_BASE_URL,
+    )
+    if not args.skip_llm and not resolved_api_key:
+        print("未检测到当前 Provider 所需的 API Key，请检查 backend/.env。")
         return 1
 
-    endpoint_base = (LLM_BASE_URL or "https://api.openai.com/v1").rstrip("/")
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    endpoint_base = (resolved_base_url or "https://api.openai.com/v1").rstrip("/")
+    headers = {"Authorization": f"Bearer {resolved_api_key}", "Content-Type": "application/json"}
 
     print("=== 模型连通性测试 ===")
     print(f"LLM Base URL: {endpoint_base}")
-    print(f"API Key: {mask_api_key(LLM_API_KEY)}")
+    print(f"API Key: {mask_api_key(resolved_api_key)}")
     print(f"Embedding provider: {EMBEDDING_PROVIDER}")
     if EMBEDDING_PROVIDER == "ollama":
         print(f"Ollama embed URL: {OLLAMA_EMBED_URL}")
@@ -150,10 +163,15 @@ def main() -> int:
 
     print()
     if all(results):
-        print("结论: 当前大语言模型和向量模型均已联通。")
+        tested = []
+        if not args.skip_llm:
+            tested.append("大语言模型")
+        if not args.skip_embedding:
+            tested.append("向量模型")
+        print(f"结论: 当前{'和'.join(tested)}已联通。")
         return 0
 
-    print("结论: 至少有一个模型未联通；请根据上方错误信息处理后再次测试。")
+    print("结论: 至少有一个已测试模型未联通；请根据上方错误信息处理后再次测试。")
     return 1
 
 

@@ -15,8 +15,12 @@ from app.config import (
     LLM_BASE_URL,
     LLM_MAX_RETRIES,
     LLM_MODEL,
+    LLM_PROVIDER,
     LLM_TIMEOUT_SECONDS,
+    OPENCODE_API_KEY,
+    OPENCODE_BASE_URL,
 )
+from app.llm import build_chat_llm
 from app.models.chat_schemas import ChatContext, ChatMessage
 from app.tools.registry import execute_tool, get_tool_specs, parse_tool_arguments
 
@@ -58,24 +62,21 @@ SYSTEM_PROMPT = """你是旅行对话助手，面向中文用户。
 
 
 def _build_chat_llm(*, streaming: bool):
-    if not LLM_API_KEY:
-        return None
-
-    try:
-        from langchain_openai import ChatOpenAI
-    except ImportError:
-        logger.warning("langchain_openai 未安装，无法启动对话")
-        return None
-
-    return ChatOpenAI(
+    llm = build_chat_llm(
+        provider=LLM_PROVIDER,
         model=LLM_MODEL,
-        temperature=0.4,
         api_key=LLM_API_KEY,
-        base_url=LLM_BASE_URL or None,
+        base_url=LLM_BASE_URL,
+        opencode_api_key=OPENCODE_API_KEY,
+        opencode_base_url=OPENCODE_BASE_URL,
+        temperature=0.4,
         timeout=LLM_TIMEOUT_SECONDS,
         max_retries=LLM_MAX_RETRIES,
         streaming=streaming,
     )
+    if llm is None:
+        logger.warning("对话模型配置或 langchain_openai 依赖不可用")
+    return llm
 
 
 def _openai_tool_definitions() -> list[dict[str, Any]]:
@@ -412,7 +413,7 @@ def iter_assistant_events(
     stream_llm = _build_chat_llm(streaming=True)
     if llm is None or stream_llm is None:
         raise RuntimeError(
-            "对话模型不可用：请检查 LLM_API_KEY / LLM_BASE_URL / langchain_openai 依赖。"
+            "对话模型不可用：请检查当前 LLM Provider 配置和 langchain_openai 依赖。"
         )
 
     lc_messages = build_langchain_messages(messages, context)

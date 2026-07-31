@@ -133,6 +133,7 @@ def test_collect_trip_context_calls_rag_tool_with_expected_arguments(monkeypatch
 
 def test_generate_planner_draft_returns_none_when_api_key_is_missing(monkeypatch) -> None:
     """测试没有配置 LLM_API_KEY 时会直接返回 None。"""
+    monkeypatch.setattr(trip_planner_agent, "LLM_PROVIDER", "openai_compatible")
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "")
 
     result, usage = trip_planner_agent.generate_planner_draft(
@@ -147,6 +148,7 @@ def test_generate_planner_draft_returns_none_when_api_key_is_missing(monkeypatch
 
 def test_generate_planner_draft_returns_structured_result_with_mock_llm(monkeypatch) -> None:
     """测试 agent 能调用结构化 LLM 并返回 PlannerDraft。"""
+    monkeypatch.setattr(trip_planner_agent, "LLM_PROVIDER", "openai_compatible")
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "test-key")
     monkeypatch.setattr(trip_planner_agent, "LLM_MODEL", "fake-model")
     monkeypatch.setattr(trip_planner_agent, "LLM_BASE_URL", "https://example.test")
@@ -177,6 +179,7 @@ def test_generate_planner_draft_returns_structured_result_with_mock_llm(monkeypa
 
 def test_generate_planner_draft_builds_prompt_with_request_and_rag_context(monkeypatch) -> None:
     """测试 prompt 中包含用户请求信息和本地攻略上下文。"""
+    monkeypatch.setattr(trip_planner_agent, "LLM_PROVIDER", "openai_compatible")
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "test-key")
     monkeypatch.setattr(trip_planner_agent, "LLM_MODEL", "fake-model")
     monkeypatch.setattr(trip_planner_agent, "LLM_BASE_URL", "")
@@ -206,6 +209,7 @@ def test_generate_planner_draft_builds_prompt_with_request_and_rag_context(monke
 
 def test_generate_planner_draft_returns_none_when_day_count_mismatches(monkeypatch) -> None:
     """测试当 LLM 返回的天数不符合预期时，会回退为 None。"""
+    monkeypatch.setattr(trip_planner_agent, "LLM_PROVIDER", "openai_compatible")
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "test-key")
     monkeypatch.setattr(trip_planner_agent, "LLM_MODEL", "fake-model")
     monkeypatch.setattr(trip_planner_agent, "LLM_BASE_URL", "")
@@ -269,6 +273,7 @@ def test_generate_day_edit_draft_accepts_nested_day_shape(monkeypatch) -> None:
     fake_module.ChatOpenAI = FakeChatOpenAI
     monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
 
+    monkeypatch.setattr(trip_planner_agent, "LLM_PROVIDER", "openai_compatible")
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "test-key")
     monkeypatch.setattr(trip_planner_agent, "LLM_MODEL", "fake-model")
     monkeypatch.setattr(trip_planner_agent, "LLM_BASE_URL", "")

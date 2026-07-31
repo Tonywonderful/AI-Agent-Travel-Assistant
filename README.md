@@ -68,52 +68,9 @@
 
 ### 系统数据流
 
-```mermaid
-flowchart TB
-    subgraph U["用户操作"]
-        U1["填写目的地 / 日期 / 预算 / 偏好"]
-        U2["查看行程 · 地图 · 天气 · 预算"]
-        U3["自然语言微调某一天"]
-        U4["保存 / 打开 / 删除历史行程"]
-        U5["随时向 AI 助手提问"]
-    end
+![TravelPlanAssistant 系统数据流全景图](image/README/system-data-flow-4k.png)
 
-    subgraph P["行程生成"]
-        P1["查询改写<br/>把表单变成检索关键词"]
-        P2["本地攻略检索<br/>向量召回 + 语义重排"]
-        P3["大模型生成结构化行程"]
-        P4["预算拆分<br/>交通 / 住宿 / 餐饮 / 门票"]
-        P5["地图与天气补全<br/>坐标 · POI · 路线 · 预报"]
-    end
-
-    subgraph A["AI 对话助手"]
-        A1["携带当前页面与行程上下文"]
-        A2["模型自主决定调用哪个工具"]
-        A3["天气 / 地图 / 攻略 / 联网搜索"]
-    end
-
-    subgraph D["数据"]
-        D1[("本地攻略<br/>6 城 Markdown")]
-        D2[("向量索引<br/>ChromaDB")]
-        D3[("历史行程<br/>SQLite")]
-        D4[("查询缓存<br/>Redis 可选")]
-    end
-
-    U1 --> P1 --> P2 --> P3 --> P4 --> P5 --> U2
-    U2 --> U3 --> P3
-    U2 --> U4 --> D3
-    U5 --> A1 --> A2 --> A3
-    A3 --> U5
-    D1 -.离线入库.-> D2
-    D2 --> P2
-    A3 --> D2
-    P2 <-.-> D4
-    P5 <-.-> D4
-```
-
-> 更多分层视图、调用栈与降级路径见 [`docs/`](./docs/) 下的架构图文档。
-
-数据流路径：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图 / 天气服务补全展示信息 → 前端展示地图、天气、预算和每日行程；对话助手经统一工具层按需查询天气、地图、攻略与联网结果；用户可保存、编辑与查看历史行程。
+系统数据流由两条相互独立的链路组成：主链路接收用户的目的地、日期、预算与偏好，依次完成 Query Rewrite、三路 RAG 检索、Planner LLM 草稿生成、名称真实性校验、行程与预算组装，并按需调用高德地图补全地址、坐标与路线；结果页加载后再独立获取天气。对话助手则根据用户问题自主调用攻略、天气、地图或联网搜索工具，并通过 SSE 将最终回答逐段返回到浏览器
 
 ### 数据存储与缓存分工
 
@@ -128,7 +85,7 @@ flowchart TB
 - **Redis：负责缓存加速**
 
   - 实现位置：`backend/app/services/cache_service.py`，并被 `weather_service.py`、`map_service.py`、`retriever.py` 复用。
-  - 使用场景：缓存天气查询、高德地图地理编码/POI/路线结果、RAG 检索结果和 qwen3-rerank 重排序结果。
+  - 使用场景：缓存天气查询、高德地图地理编码/POI/路线结果、RAG 检索结果和 OpenRouter Rerank 重排序结果。
   - 存储方式：业务模块生成缓存 key，`cache_service.py` 统一加上 `trip_planner` 前缀，将 Python `dict/list` 序列化为 JSON 字符串写入 Redis，并设置 TTL 自动过期。
   - 设计原因：天气、地图和 RAG/Rerank 结果存在明显重复查询，且在一段时间内相对稳定；使用 Redis 可以减少外部 API 调用和重复检索开销，提升接口响应速度与稳定性。
 
@@ -158,7 +115,7 @@ flowchart TB
     规则 fallback 读 data/retrieval_rules.json，由 special_notes 触发
     ↓
 ② 读 RAG 结果缓存（Redis）
-    key = rag:guide:{目的地}:{归一化 query}:{top_k}
+    key = rag:guide:{Rerank模型哈希}:{目的地}:{归一化 query}:{top_k}
     命中则直接返回，③～⑥ 全部跳过
     ↓
 ③ Query Embedding
@@ -170,10 +127,11 @@ flowchart TB
     Chroma 不可用或向量化失败时，降级为全文关键词计分召回
     ↓
 ⑤ 读 Rerank 缓存（Redis）
-    key = rerank:{归一化 query}:{候选来源哈希}
+    key = rerank:{Rerank模型哈希}:{归一化 query}:{候选来源哈希}
     命中则直接按缓存分数重排，⑥ 跳过
     ↓
-⑥ Cross-encoder Rerank（DashScope / 规则 fallback）
+⑥ Cross-encoder Rerank（OpenRouter / 规则 fallback）
+    调用 `nvidia/llama-nemotron-rerank-vl-1b-v2:free` 精排
     调用前先剔除"文档开头"这类低信息量片段，避免浪费 API 调用
     失败时降级为规则打分（标题命中 +3、正文命中 +1、文档开头 −8、跨城市 −5）
     ↓
@@ -318,6 +276,7 @@ uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 ```text
 API:      http://127.0.0.1:8000
 API 文档: http://127.0.0.1:8000/docs
+模型目录: http://127.0.0.1:8000/models
 ```
 
 首次使用 RAG 时，另开终端执行以下命令将本地攻略写入 Chroma：
@@ -400,7 +359,7 @@ SSE 事件共 6 种：`status`（thinking / tool / streaming）、`tool_start`�
 - 行程编辑不走 RAG，`TripEditRequest.trip_id` 未被使用，编辑结果不落库。
 - `trip_id` 由「目的地 + 出发日期」拼成，同目的地同出发日再次保存会覆盖前一份。
 - MCP server 与 `tools/registry.py` 共用底层实现，但工具描述与参数默认值是各自维护的，存在分叉风险。
-- Rerank 的 endpoint 与 API Key 复用 `LLM_API_KEY`，不可单独配置。
+- Rerank 通过 OpenRouter 独立配置 `RERANK_API_URL`、`RERANK_MODEL`、`RERANK_API_KEY`；Key 不会回退复用 `LLM_API_KEY`。
 - `.env.example` 与 `config.py` 的默认值不完全一致（`LLM_MODEL`、`EMBEDDING_MODEL`、`REDIS_ENABLED`、`LLM_BASE_URL`），没有 `.env` 时行为会不同。
 - 本地 Markdown 攻略用于 RAG 参考，不等同于已逐条核验的实时 POI、门票、餐饮或住宿数据。
 

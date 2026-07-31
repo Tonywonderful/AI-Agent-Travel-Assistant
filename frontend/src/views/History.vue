@@ -267,7 +267,7 @@ watch(
       </label>
 
       <div class="search-row__actions">
-        <button class="refresh-button" type="button" :disabled="loading" @click="loadTrips">
+        <button class="refresh-button" type="button" :disabled="loading" @click="loadTrips()">
           <AppIcon name="refresh" :size="20" />
           <span>{{ loading ? "刷新中" : "刷新行程" }}</span>
         </button>

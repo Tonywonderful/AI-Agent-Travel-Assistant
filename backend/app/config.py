@@ -23,12 +23,14 @@ Base = declarative_base()
 
 
 # 大模型配置
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai_compatible")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai_compatible").strip().lower()
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
+OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY", "public")
+OPENCODE_BASE_URL = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1")
 
 
 # RAG / 向量库配置
@@ -50,10 +52,26 @@ OLLAMA_EMBED_URL = os.getenv(
     "OLLAMA_EMBED_URL",
     "http://127.0.0.1:11434/api/embeddings",
 ).rstrip("/")
-# 可选：embedding 单独走不同网关；未配置时回退到 LLM 配置
-EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "") or os.getenv("LLM_API_KEY", "")
-EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "") or os.getenv("LLM_BASE_URL", "")
-RERANK_MODEL = os.getenv("RERANK_MODEL", "qwen3-rerank")
+# 可选：embedding 单独走不同网关；普通兼容 Provider 未配置时回退到 LLM 配置。
+# Zen 免费接口只提供 Chat Completion，不能把 public 凭据误用于 Embedding / Rerank。
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "") or (
+    LLM_API_KEY if LLM_PROVIDER != "opencode_zen" else ""
+)
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "") or (
+    LLM_BASE_URL if LLM_PROVIDER != "opencode_zen" else ""
+)
+RERANK_API_URL = os.getenv(
+    "RERANK_API_URL",
+    "https://openrouter.ai/api/v1/rerank",
+).strip()
+RERANK_MODEL = os.getenv(
+    "RERANK_MODEL",
+    "nvidia/llama-nemotron-rerank-vl-1b-v2:free",
+).strip()
+RERANK_API_KEY = os.getenv("RERANK_API_KEY", "").strip()
+RERANK_HTTP_REFERER = os.getenv("RERANK_HTTP_REFERER", "").strip()
+RERANK_APP_TITLE = os.getenv("RERANK_APP_TITLE", "").strip()
+RERANK_TIMEOUT_SECONDS = float(os.getenv("RERANK_TIMEOUT_SECONDS", "30"))
 # 最终返回的攻略片段数；向量召回候选数为 max(RAG_TOP_K * 2, 6)
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 

@@ -6,17 +6,18 @@ import re
 import httpx
 
 from app.config import (
-    LLM_API_KEY,
     RAG_TOP_K,
     REDIS_RAG_TTL_SECONDS,
     REDIS_RERANK_TTL_SECONDS,
+    RERANK_API_KEY,
+    RERANK_API_URL,
+    RERANK_APP_TITLE,
+    RERANK_HTTP_REFERER,
     RERANK_MODEL,
+    RERANK_TIMEOUT_SECONDS,
 )
 from app.rag.vector_db import search_guide_chunks_with_usage
 from app.services.cache_service import get_cached_json, set_cached_json
-
-
-DASHSCOPE_RERANK_URL = "https://dashscope.aliyuncs.com/compatible-api/v1/reranks"
 
 
 logger = logging.getLogger(__name__)
@@ -137,66 +138,68 @@ def _extract_rerank_token_usage(response_data: dict) -> tuple[dict[str, int], bo
     }, False
 
 
-def _rerank_with_dashscope(
+def _build_openrouter_headers() -> dict[str, str]:
+    """构造 OpenRouter Rerank 请求头；站点信息为可选配置。"""
+    headers = {
+        "Authorization": f"Bearer {RERANK_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    if RERANK_HTTP_REFERER:
+        headers["HTTP-Referer"] = RERANK_HTTP_REFERER
+    if RERANK_APP_TITLE:
+        headers["X-OpenRouter-Title"] = RERANK_APP_TITLE
+    return headers
+
+
+def _rerank_with_openrouter(
     query: str,
     chunks: list[dict[str, str]],
     top_k: int,
 ) -> tuple[list[tuple[float, int]] | None, dict[str, int]]:
-    """调用 DashScope qwen3-rerank 模型做语义重排序。返回 (scored, token_usage)。"""
+    """调用 OpenRouter Rerank API 做语义重排序。返回 (scored, token_usage)。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    if not LLM_API_KEY or not chunks:
-        print("[rerank] skip qwen3-rerank: missing LLM_API_KEY or empty chunks")
+    if not RERANK_API_KEY or not RERANK_API_URL or not RERANK_MODEL or not chunks:
+        logger.info("skip OpenRouter rerank: incomplete config or empty chunks")
         return None, empty_usage
 
-    # 过滤已知噪声片段，避免浪费 rerank 名额
+    # 过滤已知噪声片段，避免浪费 rerank 名额。
     filtered = [
         (i, chunk) for i, chunk in enumerate(chunks)
         if chunk.get("title", "") not in _NOISE_TITLES
     ]
     if not filtered:
-        print("[rerank] skip qwen3-rerank: all chunks are noise")
+        logger.info("skip OpenRouter rerank: all chunks are noise")
         return None, empty_usage
 
     original_indices = [i for i, _ in filtered]
     clean_chunks = [chunk for _, chunk in filtered]
-
     documents = [
-        f"{chunk.get('title', '')}\n{chunk.get('text', '')}"
+        {"text": f"{chunk.get('title', '')}\n{chunk.get('text', '')}"}
         for chunk in clean_chunks
     ]
-    instruct = (
-        "你是一个旅行攻略检索专家。"
-        "给定一个旅行规划查询，从候选文档中检索出最具体、最详细、最能直接回答用户问题的片段。"
-        "优先选择包含具体景点名称、活动推荐、实用信息的片段，"
-        "避免选择泛化的目的地简介、文档开头等信息量低的片段。"
-    )
     payload = {
         "model": RERANK_MODEL,
-        "documents": documents,
         "query": query,
+        "documents": documents,
         "top_n": min(top_k, len(documents)),
-        "instruct": instruct,
     }
 
     try:
-        print(
-            f"[rerank] calling qwen3-rerank: query={query}, "
-            f"candidate_count={len(clean_chunks)}, top_k={top_k}"
+        logger.info(
+            "calling OpenRouter rerank: model=%s candidates=%d top_k=%d",
+            RERANK_MODEL,
+            len(clean_chunks),
+            top_k,
         )
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=RERANK_TIMEOUT_SECONDS) as client:
             response = client.post(
-                DASHSCOPE_RERANK_URL,
+                RERANK_API_URL,
                 json=payload,
-                headers={
-                    "Authorization": f"Bearer {LLM_API_KEY}",
-                    "Content-Type": "application/json",
-                },
+                headers=_build_openrouter_headers(),
             )
-            print(f"[rerank] qwen3-rerank status_code={response.status_code}")
-            if response.status_code != 200:
-                print(f"[rerank] qwen3-rerank response preview={response.text[:500]}")
+            if not response.is_success:
                 logger.warning(
-                    "dashscope rerank HTTP %d: %s",
+                    "OpenRouter rerank HTTP %d: %s",
                     response.status_code,
                     response.text[:500],
                 )
@@ -205,59 +208,55 @@ def _rerank_with_dashscope(
 
         # 只提取接口返回的官方 token usage；没有 usage 时保持 0，不做估算。
         token_usage, has_official_usage = _extract_rerank_token_usage(data)
-        usage_source = "api" if has_official_usage else "none"
-        print(
-            "[rerank] qwen3-rerank token: "
-            f"prompt={token_usage['prompt_tokens']}, "
-            f"completion={token_usage['completion_tokens']}, "
-            f"source={usage_source}"
-        )
-        if not has_official_usage:
-            print(
-                "[rerank] qwen3-rerank response has no official usage field; "
-                "precise token count is unavailable from this response."
-            )
-        if token_usage["prompt_tokens"] or token_usage["completion_tokens"]:
+        if has_official_usage:
             logger.info(
-                "dashscope rerank token: prompt=%d, completion=%d",
+                "OpenRouter rerank token: prompt=%d, completion=%d",
                 token_usage["prompt_tokens"],
                 token_usage["completion_tokens"],
             )
 
-        # 兼容两种响应格式
-        results = data.get("output", {}).get("results", []) or data.get("results", [])
+        results = data.get("results", [])
         if not results:
-            print(
-                "[rerank] qwen3-rerank empty results, "
-                f"response preview={json.dumps(data, ensure_ascii=False)[:500]}"
+            logger.warning(
+                "OpenRouter rerank empty results: %s",
+                json.dumps(data, ensure_ascii=False)[:500],
             )
-            logger.warning("dashscope rerank empty results, response: %s", json.dumps(data, ensure_ascii=False)[:500])
             return None, token_usage
 
-        scored = [
-            (float(item.get("relevance_score", 0)), original_indices[int(item.get("index", 0))])
-            for item in results
-            if int(item.get("index", 0)) < len(original_indices)
-        ]
-        scored.sort(key=lambda x: x[0], reverse=True)
-        print(f"[rerank] qwen3-rerank success: results={len(scored)}")
-        logger.info("dashscope rerank: query=%s, results=%d", query, len(scored))
+        scored: list[tuple[float, int]] = []
+        for item in results:
+            index = item.get("index")
+            if not isinstance(index, int) or not 0 <= index < len(original_indices):
+                continue
+            scored.append(
+                (float(item.get("relevance_score", 0)), original_indices[index])
+            )
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        if not scored:
+            logger.warning("OpenRouter rerank returned no valid result indices")
+            return None, token_usage
+
+        logger.info("OpenRouter rerank success: results=%d", len(scored))
         return scored, token_usage
 
-    except Exception as exc:
-        print(f"[rerank] qwen3-rerank failed: {type(exc).__name__}: {exc}")
-        logger.warning("dashscope rerank failed: %s, falling back to rule-based", exc)
+    except (httpx.HTTPError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning(
+            "OpenRouter rerank failed: %s; falling back to rule-based",
+            exc,
+        )
         return None, empty_usage
 
 
 def _build_rerank_cache_key(query: str, chunks: list[dict[str, str]]) -> str:
-    """根据 query 与 chunk 指纹生成 rerank 缓存 key。"""
+    """根据模型、query 与 chunk 指纹生成 rerank 缓存 key。"""
     normalized_query = _normalize_cache_text(query)
     content_fingerprint = "|".join(
         f"{c.get('source', '')}:{c.get('title', '')}" for c in chunks
     )
+    model_hash = hashlib.md5(RERANK_MODEL.encode()).hexdigest()[:8]
     chunks_hash = hashlib.md5(content_fingerprint.encode()).hexdigest()[:12]
-    return f"rerank:{normalized_query}:{chunks_hash}"
+    return f"rerank:{model_hash}:{normalized_query}:{chunks_hash}"
 
 
 def rerank_guide_chunks(
@@ -285,19 +284,22 @@ def rerank_guide_chunks(
         return reranked[:top_k], empty_usage
     logger.info("rerank cache miss: query=%s", query)
 
-    # 优先尝试 DashScope Cross-encoder Rerank
-    dashscope_results, rerank_token_usage = _rerank_with_dashscope(query, matched_chunks, top_k)
-    if dashscope_results:
-        print("[rerank] using qwen3-rerank results")
-        # 写入缓存：只存索引和分数，不重复存文本
+    # 优先尝试 OpenRouter Cross-encoder Rerank。
+    openrouter_results, rerank_token_usage = _rerank_with_openrouter(
+        query,
+        matched_chunks,
+        top_k,
+    )
+    if openrouter_results:
+        # 写入缓存：只存索引和分数，不重复存文本。
         cache_value = [
             {"i": idx, "s": round(score, 4)}
-            for score, idx in dashscope_results
+            for score, idx in openrouter_results
         ]
         set_cached_json(cache_key, cache_value, expire_seconds=REDIS_RERANK_TTL_SECONDS)
 
         reranked = []
-        for score, original_index in dashscope_results:
+        for score, original_index in openrouter_results:
             if 0 <= original_index < len(matched_chunks):
                 enriched_chunk = dict(matched_chunks[original_index])
                 enriched_chunk["rerank_score"] = round(score, 4)
@@ -305,9 +307,8 @@ def rerank_guide_chunks(
                 reranked.append(enriched_chunk)
         return reranked[:top_k], rerank_token_usage
 
-    # fallback 到规则级 Rerank
-    print("[rerank] qwen3-rerank unavailable, using rule-based rerank")
-    logger.info("rerank_guide_chunks: using rule-based rerank")
+    # fallback 到规则级 Rerank。
+    logger.info("OpenRouter rerank unavailable; using rule-based rerank")
     scored_chunks: list[tuple[int, int, dict[str, str]]] = []
     for index, chunk in enumerate(matched_chunks):
         enriched_chunk = dict(chunk)
@@ -340,7 +341,11 @@ def retrieve_travel_guide(
     """返回最相关的攻略片段。返回 (texts, rerank_usage, embedding_usage)。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
     cache_destination = destination or "all"
-    cache_key = f"rag:guide:{cache_destination}:{_normalize_cache_text(query)}:{top_k}"
+    model_hash = hashlib.md5(RERANK_MODEL.encode()).hexdigest()[:8]
+    cache_key = (
+        f"rag:guide:{model_hash}:{cache_destination}:"
+        f"{_normalize_cache_text(query)}:{top_k}"
+    )
     cached_value = get_cached_json(cache_key)
     if cached_value is not None:
         logger.info("rag cache hit: query=%s top_k=%s", query, top_k)
