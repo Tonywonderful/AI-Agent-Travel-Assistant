@@ -61,10 +61,6 @@ Thumbs.db
 .workbuddy/
 .vite/
 
-# Local image backups and temporary visual checks
+# Local generated outputs and image backups
+outputs/
 image/README/original_with_black_borders/
-outputs/.*
-outputs/v4_incremental_original_crop_check.png
-
-# Personal machine analysis (never publish)
-outputs/C盘个人目录只读清理分析_*.md
