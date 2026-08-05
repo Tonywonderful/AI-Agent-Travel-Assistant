@@ -28,37 +28,151 @@ from app.rag.guide_catalog import destination_for_guide
 DATA_DIR = BACKEND_DIR / "data"
 
 
+_DINING_SECTION_KEYWORD = "特色餐饮与预算参考"
+_ACCOMMODATION_SECTION_KEYWORD = "住宿区域建议"
+_ATTRACTION_SECTION_KEYWORD = "核心景点"
+_RESTAURANT_TITLE_PREFIX = "餐饮："
+_DISH_TITLE_PREFIX = "菜品："
+_FOOD_DISTRICT_TITLE_PREFIX = "餐饮街区："
+_DINING_ADVICE_TITLE_PREFIX = "餐饮提示："
+_ACCOMMODATION_ADVICE_TITLE_PREFIX = "住宿提示："
+_HOTEL_TIER_PATTERN = re.compile(r"^- \*\*住宿档次\*\*：(?P<tier>.+)$", re.MULTILINE)
+_MARKDOWN_HEADING_NUMBER_PATTERN = re.compile(r"^\d+(?:\.\d+)*\s+")
+
+RETRIEVAL_SCOPE_PLANNING = "planning"
+RETRIEVAL_SCOPE_ASSISTANT_ONLY = "assistant_only"
+_VALID_RETRIEVAL_SCOPES = {
+    RETRIEVAL_SCOPE_PLANNING,
+    RETRIEVAL_SCOPE_ASSISTANT_ONLY,
+}
+_ASSISTANT_ONLY_TITLE_MARKERS = {
+    "交通距离与行程组织",
+    "专项通用安全说明",
+    "通用安全说明",
+}
+
+
+def _classify_retrieval_scope(section: str, title: str) -> str:
+    """标记仅供问答使用的辅助知识，其余 Chunk 可参与规划。"""
+    if title == "文档开头":
+        return RETRIEVAL_SCOPE_ASSISTANT_ONLY
+    if "目的地简介" in section or "目的地简介" in title:
+        return RETRIEVAL_SCOPE_ASSISTANT_ONLY
+    if re.match(r"^5[.．、\s]", section):
+        return RETRIEVAL_SCOPE_ASSISTANT_ONLY
+    if any(marker in section or marker in title for marker in _ASSISTANT_ONLY_TITLE_MARKERS):
+        return RETRIEVAL_SCOPE_ASSISTANT_ONLY
+    return RETRIEVAL_SCOPE_PLANNING
+
+
+def _validate_retrieval_scope(retrieval_scope: str | None) -> None:
+    if retrieval_scope is not None and retrieval_scope not in _VALID_RETRIEVAL_SCOPES:
+        raise ValueError(f"未知 retrieval_scope：{retrieval_scope}")
+
+
+def _build_chroma_where(
+    destination: str | None,
+    retrieval_scope: str | None,
+    categories: list[str] | None = None,
+    budget_tier: str | None = None,
+) -> dict[str, object] | None:
+    """构造兼容 Chroma 的用途、目的地和实体类型联合过滤条件。"""
+    _validate_retrieval_scope(retrieval_scope)
+    filters: list[dict[str, object]] = []
+    if destination:
+        filters.append({"destination": destination})
+    if retrieval_scope:
+        filters.append({"retrieval_scope": retrieval_scope})
+    normalized_categories = list(dict.fromkeys(categories or []))
+    if len(normalized_categories) == 1:
+        filters.append({"category": normalized_categories[0]})
+    elif normalized_categories:
+        filters.append({"category": {"$in": normalized_categories}})
+    if budget_tier:
+        filters.append({"budget_tier": budget_tier})
+    if not filters:
+        return None
+    if len(filters) == 1:
+        return filters[0]
+    return {"$and": filters}
+
+
+def _classify_heading(section: str, title: str, text: str) -> tuple[str, str, str]:
+    """按新知识库标题规范识别类别、实体名和酒店档次。"""
+    if _DINING_SECTION_KEYWORD in section:
+        if title.startswith(_RESTAURANT_TITLE_PREFIX):
+            return "restaurant", title.removeprefix(_RESTAURANT_TITLE_PREFIX).strip(), ""
+        if title.startswith(_DISH_TITLE_PREFIX):
+            return "dish", title.removeprefix(_DISH_TITLE_PREFIX).strip(), ""
+        if title.startswith(_FOOD_DISTRICT_TITLE_PREFIX):
+            return "food_district", "", ""
+        if title.startswith(_DINING_ADVICE_TITLE_PREFIX):
+            return "dining_advice", "", ""
+        return "dining_knowledge", "", ""
+
+    if _ACCOMMODATION_SECTION_KEYWORD in section:
+        if title == section or title.startswith(_ACCOMMODATION_ADVICE_TITLE_PREFIX):
+            return "accommodation_advice", "", ""
+        tier_match = _HOTEL_TIER_PATTERN.search(text)
+        budget_tier = tier_match.group("tier").strip() if tier_match else ""
+        return "hotel", title, budget_tier
+
+    if _ATTRACTION_SECTION_KEYWORD in section and title != section:
+        entity_name = _MARKDOWN_HEADING_NUMBER_PATTERN.sub("", title).strip()
+        return "attraction", entity_name, ""
+
+    return "guide", "", ""
+
+
 def _split_markdown_into_chunks(markdown_text: str, source_name: str) -> list[dict[str, str]]:
-    """按二级、三级标题切分 Markdown，返回可检索片段。"""
+    """按二级、三级标题切分 Markdown；每个餐厅和酒店三级标题即独立 Chunk。"""
     chunks: list[dict[str, str]] = []
     current_title = "文档开头"
+    current_section = ""
     current_lines: list[str] = []
 
-    for line in markdown_text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("## ") or stripped.startswith("### "):
-            if current_lines:
-                chunks.append(
-                    {
-                        "title": current_title,
-                        "text": "\n".join(current_lines).strip(),
-                        "source": source_name,
-                    }
-                )
-                current_lines = []
-            current_title = stripped.lstrip("#").strip()
-        elif stripped:
-            current_lines.append(stripped)
+    def flush_current_chunk() -> None:
+        nonlocal current_lines
+        text = "\n".join(current_lines).strip()
+        if not text:
+            current_lines = []
+            return
 
-    if current_lines:
+        category, entity_name, budget_tier = _classify_heading(
+            current_section, current_title, text
+        )
         chunks.append(
             {
                 "title": current_title,
-                "text": "\n".join(current_lines).strip(),
+                "text": text,
                 "source": source_name,
+                "category": category,
+                "entity_name": entity_name,
+                "section": current_section,
+                "subsection": current_title if current_title != current_section else "",
+                "budget_tier": budget_tier,
+                "retrieval_scope": _classify_retrieval_scope(
+                    current_section, current_title
+                ),
             }
         )
+        current_lines = []
 
+    for line in markdown_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            flush_current_chunk()
+            current_section = stripped.removeprefix("## ").strip()
+            current_title = current_section
+            continue
+        if stripped.startswith("### "):
+            flush_current_chunk()
+            current_title = stripped.removeprefix("### ").strip()
+            continue
+        if stripped:
+            current_lines.append(stripped)
+
+    flush_current_chunk()
     return chunks
 
 
@@ -103,6 +217,14 @@ def load_guide_chunks() -> list[dict[str, str]]:
                     "document_id": document_id,
                     "content_hash": content_hash,
                     "destination": destination,
+                    "category": chunk.get("category", "guide"),
+                    "entity_name": chunk.get("entity_name", ""),
+                    "section": chunk.get("section", ""),
+                    "subsection": chunk.get("subsection", ""),
+                    "budget_tier": chunk.get("budget_tier", ""),
+                    "retrieval_scope": chunk.get(
+                        "retrieval_scope", RETRIEVAL_SCOPE_PLANNING
+                    ),
                 }
             )
     return chunks
@@ -133,6 +255,14 @@ def load_guide_documents() -> list[dict[str, object]]:
                     "document_id": document_id,
                     "content_hash": content_hash,
                     "destination": destination,
+                    "category": chunk.get("category", "guide"),
+                    "entity_name": chunk.get("entity_name", ""),
+                    "section": chunk.get("section", ""),
+                    "subsection": chunk.get("subsection", ""),
+                    "budget_tier": chunk.get("budget_tier", ""),
+                    "retrieval_scope": chunk.get(
+                        "retrieval_scope", RETRIEVAL_SCOPE_PLANNING
+                    ),
                 }
             )
         documents.append(
@@ -161,12 +291,24 @@ def _score_chunk(query: str, chunk_text: str) -> int:
 
 
 def _search_guide_chunks_by_keywords(
-    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
+    query: str,
+    top_k: int = RAG_TOP_K,
+    destination: str | None = None,
+    retrieval_scope: str | None = None,
+    categories: list[str] | None = None,
+    budget_tier: str | None = None,
 ) -> list[dict[str, str]]:
     """回退方案：使用关键词匹配本地攻略片段。"""
+    _validate_retrieval_scope(retrieval_scope)
     scored_chunks: list[tuple[int, dict[str, str]]] = []
     for chunk in load_guide_chunks():
         if destination and chunk.get("destination") != destination:
+            continue
+        if retrieval_scope and chunk.get("retrieval_scope") != retrieval_scope:
+            continue
+        if categories and chunk.get("category") not in categories:
+            continue
+        if budget_tier and chunk.get("budget_tier") != budget_tier:
             continue
         score = _score_chunk(query, _build_document_text(chunk))
         if score > 0:
@@ -387,6 +529,14 @@ def load_guide_document(document_id: str) -> dict[str, object] | None:
                 "document_id": document_id,
                 "content_hash": content_hash,
                 "destination": destination,
+                "category": chunk.get("category", "guide"),
+                "entity_name": chunk.get("entity_name", ""),
+                "section": chunk.get("section", ""),
+                "subsection": chunk.get("subsection", ""),
+                "budget_tier": chunk.get("budget_tier", ""),
+                "retrieval_scope": chunk.get(
+                    "retrieval_scope", RETRIEVAL_SCOPE_PLANNING
+                ),
             }
         )
     return {
@@ -413,6 +563,14 @@ def _upsert_chunks_to_collection(collection, embeddings, chunks: list[dict[str, 
             "document_id": chunk["document_id"],
             "content_hash": chunk["content_hash"],
             "destination": chunk["destination"],
+            "category": chunk.get("category", "guide"),
+            "entity_name": chunk.get("entity_name", ""),
+            "section": chunk.get("section", ""),
+            "subsection": chunk.get("subsection", ""),
+            "budget_tier": chunk.get("budget_tier", ""),
+            "retrieval_scope": chunk.get(
+                "retrieval_scope", RETRIEVAL_SCOPE_PLANNING
+            ),
         }
         for chunk in chunks
     ]
@@ -510,6 +668,14 @@ def ingest_guide_chunks_to_chroma() -> int:
             "document_id": chunk["document_id"],
             "content_hash": chunk["content_hash"],
             "destination": chunk["destination"],
+            "category": chunk.get("category", "guide"),
+            "entity_name": chunk.get("entity_name", ""),
+            "section": chunk.get("section", ""),
+            "subsection": chunk.get("subsection", ""),
+            "budget_tier": chunk.get("budget_tier", ""),
+            "retrieval_scope": chunk.get(
+                "retrieval_scope", RETRIEVAL_SCOPE_PLANNING
+            ),
         }
         for chunk in chunks
     ]
@@ -537,7 +703,12 @@ def ingest_guide_chunks_to_chroma() -> int:
 
 
 def _search_guide_chunks_by_chroma(
-    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
+    query: str,
+    top_k: int = RAG_TOP_K,
+    destination: str | None = None,
+    retrieval_scope: str | None = None,
+    categories: list[str] | None = None,
+    budget_tier: str | None = None,
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
     """优先使用 Chroma 做向量检索，并返回在线 query embedding token。"""
     collection = _get_chroma_collection()
@@ -556,8 +727,14 @@ def _search_guide_chunks_by_chroma(
         "n_results": top_k,
         "include": ["documents", "metadatas"],
     }
-    if destination:
-        query_args["where"] = {"destination": destination}
+    where = _build_chroma_where(
+        destination,
+        retrieval_scope,
+        categories=categories,
+        budget_tier=budget_tier,
+    )
+    if where:
+        query_args["where"] = where
     result = collection.query(**query_args)
 
     documents = result.get("documents", [[]])[0]
@@ -572,6 +749,16 @@ def _search_guide_chunks_by_chroma(
         )
         content_hash = metadata.get("content_hash", "") if metadata else ""
         chunk_destination = metadata.get("destination", "") if metadata else ""
+        category = metadata.get("category", "guide") if metadata else "guide"
+        entity_name = metadata.get("entity_name", "") if metadata else ""
+        section = metadata.get("section", "") if metadata else ""
+        subsection = metadata.get("subsection", "") if metadata else ""
+        budget_tier = metadata.get("budget_tier", "") if metadata else ""
+        chunk_retrieval_scope = (
+            metadata.get("retrieval_scope", RETRIEVAL_SCOPE_PLANNING)
+            if metadata
+            else RETRIEVAL_SCOPE_PLANNING
+        )
         text = document.split("\n", 1)[1] if "\n" in document else document
         matched_chunks.append(
             {
@@ -581,6 +768,12 @@ def _search_guide_chunks_by_chroma(
                 "document_id": document_id,
                 "content_hash": content_hash,
                 "destination": chunk_destination,
+                "category": category,
+                "entity_name": entity_name,
+                "section": section,
+                "subsection": subsection,
+                "budget_tier": budget_tier,
+                "retrieval_scope": chunk_retrieval_scope,
             }
         )
 
@@ -588,7 +781,12 @@ def _search_guide_chunks_by_chroma(
 
 
 def search_guide_chunks_with_usage(
-    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
+    query: str,
+    top_k: int = RAG_TOP_K,
+    destination: str | None = None,
+    retrieval_scope: str | None = None,
+    categories: list[str] | None = None,
+    budget_tier: str | None = None,
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
     """
     从本地攻略片段里找最相关的 top_k 条结果。
@@ -597,20 +795,40 @@ def search_guide_chunks_with_usage(
     """
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
     chroma_results, embedding_usage = _search_guide_chunks_by_chroma(
-        query=query, top_k=top_k, destination=destination
+        query=query,
+        top_k=top_k,
+        destination=destination,
+        retrieval_scope=retrieval_scope,
+        categories=categories,
+        budget_tier=budget_tier,
     )
     if chroma_results:
         return chroma_results, embedding_usage
     return _search_guide_chunks_by_keywords(
-        query=query, top_k=top_k, destination=destination
+        query=query,
+        top_k=top_k,
+        destination=destination,
+        retrieval_scope=retrieval_scope,
+        categories=categories,
+        budget_tier=budget_tier,
     ), empty_usage
 
 
 def search_guide_chunks(
-    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
+    query: str,
+    top_k: int = RAG_TOP_K,
+    destination: str | None = None,
+    retrieval_scope: str | None = None,
+    categories: list[str] | None = None,
+    budget_tier: str | None = None,
 ) -> list[dict[str, str]]:
     """只返回检索片段（不含 token usage）。"""
     chunks, _ = search_guide_chunks_with_usage(
-        query=query, top_k=top_k, destination=destination
+        query=query,
+        top_k=top_k,
+        destination=destination,
+        retrieval_scope=retrieval_scope,
+        categories=categories,
+        budget_tier=budget_tier,
     )
     return chunks

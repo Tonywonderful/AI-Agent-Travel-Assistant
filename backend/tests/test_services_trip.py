@@ -94,8 +94,8 @@ def test_generate_trip_itinerary_does_not_invent_fallback_entities(monkeypatch) 
     assert all(day.hotel is not None and day.hotel.name == "大理邻步客栈" for day in itinerary.days)
     assert itinerary.days[1].spots == []
     assert itinerary.days[1].meals == []
-    assert any("未从当前攻略检索到景点信息" in note for note in itinerary.days[1].notes)
-    assert any("未从当前攻略检索到餐饮信息" in note for note in itinerary.days[1].notes)
+    assert any("暂无可核验候选：符合当前条件的景点或活动" in note for note in itinerary.days[1].notes)
+    assert any("暂无可核验候选：符合当前饮食偏好和预算的餐厅" in note for note in itinerary.days[1].notes)
     assert "推荐景点" not in serialized
     assert "特色餐饮" not in serialized
     assert "舒适型住宿" not in serialized
@@ -110,6 +110,91 @@ def test_generate_trip_itinerary_keeps_request_preferences_in_summary() -> None:
     assert "自然风景" in itinerary.summary
     assert "拍照" in itinerary.summary
     assert "美食" in itinerary.summary
+
+
+def test_generation_preserves_hotel_metadata_and_builds_real_transport_origin(monkeypatch) -> None:
+    contexts = [
+        "[来源: chengdu_guide.md | 标题: 2.8 人民公园（城市生活）]\n"
+        "- **位置**：青羊区\n- **简介**：城市文化景点。",
+        "[来源: chengdu_guide.md | 标题: 餐饮：龙抄手]\n"
+        "- **人均预算**：20-50 元\n- **推荐菜品**：抄手\n- **相关描述**：本地小吃。",
+        "[来源: chengdu_guide.md | 标题: 成都太古里天府广场地铁站亚朵酒店]\n"
+        "- **住宿档次**：舒适型（200-500 元/晚）\n"
+        "- **参考价格**：约 200-500 元/晚\n"
+        "- **所在区域**：锦江区人民东路\n"
+        "- **相关描述**：靠近地铁站。",
+    ]
+    monkeypatch.setattr(
+        trip_service,
+        "collect_trip_context",
+        lambda **_: (contexts, *( {"prompt_tokens": 0, "completion_tokens": 0} for _ in range(3))),
+    )
+    monkeypatch.setattr(
+        trip_service,
+        "generate_planner_draft",
+        lambda *_: (None, {"prompt_tokens": 0, "completion_tokens": 0}),
+    )
+    monkeypatch.setattr(trip_service, "ENABLE_AMAP_ENRICHMENT", False)
+    request = TripRequest(
+        destination="成都",
+        start_date="2026-08-11",
+        end_date="2026-08-11",
+        travelers=2,
+        budget_min_per_person=3000,
+        budget_max_per_person=8000,
+        preferences=["城市漫游"],
+        hotel_level="舒适型",
+        special_notes="偏好地铁出行",
+    )
+
+    itinerary = generate_trip_itinerary(request)
+    hotel = itinerary.days[0].hotel
+    transport = itinerary.days[0].transport[0]
+
+    assert hotel is not None
+    assert hotel.level == "舒适型（200-500 元/晚）"
+    assert hotel.reference_price == "约 200-500 元/晚"
+    assert hotel.location == "锦江区人民东路"
+    assert hotel.source == "chengdu_guide.md"
+    assert transport.mode == "地铁"
+    assert transport.from_place == hotel.name
+    assert transport.from_place != "成都 出发点"
+    assert itinerary.days[0].spots[0].start_time is None
+    assert itinerary.days[0].spots[0].end_time is None
+    assert itinerary.days[0].meals[0].meal_type == "正餐"
+
+
+def test_unverified_must_have_requirement_is_not_freely_completed(monkeypatch) -> None:
+    contexts = [
+        "[来源: chengdu_guide.md | 标题: 2.8 人民公园（城市生活）]\n"
+        "- **位置**：青羊区\n- **简介**：城市文化景点。",
+    ]
+    monkeypatch.setattr(
+        trip_service,
+        "collect_trip_context",
+        lambda **_: (contexts, *( {"prompt_tokens": 0, "completion_tokens": 0} for _ in range(3))),
+    )
+    monkeypatch.setattr(
+        trip_service,
+        "generate_planner_draft",
+        lambda *_: (None, {"prompt_tokens": 0, "completion_tokens": 0}),
+    )
+    monkeypatch.setattr(trip_service, "ENABLE_AMAP_ENRICHMENT", False)
+    request = TripRequest(
+        destination="成都",
+        start_date="2026-08-11",
+        end_date="2026-08-11",
+        travelers=2,
+        budget_min_per_person=3000,
+        budget_max_per_person=8000,
+        special_notes="安排一次温泉体验",
+    )
+
+    itinerary = generate_trip_itinerary(request)
+
+    assert any("暂无可核验候选：温泉体验" in note for note in itinerary.source_notes)
+    assert any("暂无可核验候选：温泉体验" in tip for tip in itinerary.tips)
+    assert "温泉酒店" not in itinerary.model_dump_json()
 
 '''
 测的是：

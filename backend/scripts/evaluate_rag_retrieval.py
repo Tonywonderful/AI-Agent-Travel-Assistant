@@ -1,190 +1,318 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import time
-from pathlib import Path
 import sys
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 
 CURRENT_FILE = Path(__file__).resolve()
 BACKEND_DIR = CURRENT_FILE.parent.parent
+PROJECT_DIR = BACKEND_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.agents.tools.rag_tool import build_destination_query
-from app.config import RAG_TOP_K
-from app.rag.retriever import retrieve_travel_guide_chunks
+from app.config import CHROMA_COLLECTION_NAME, EMBEDDING_MODEL, RERANK_MODEL
+from app.rag.evaluation_metrics import (
+    CANDIDATE_K,
+    TOP_K,
+    candidate_recall_at_20,
+    ndcg_at_5,
+    precision_at_5,
+    validate_qrels,
+)
+from app.rag.retriever import _rerank_with_openrouter
+from app.rag.vector_db import (
+    RETRIEVAL_SCOPE_PLANNING,
+    _search_guide_chunks_by_chroma,
+)
 
 
 DEFAULT_CASES_PATH = BACKEND_DIR / "eval" / "rag_eval_cases.json"
+DEFAULT_QRELS_PATH = BACKEND_DIR / "eval" / "rag_qrels.json"
+DEFAULT_OUTPUT_DIR = PROJECT_DIR / "outputs" / "evaluations"
+
 
 def _load_cases(path: Path) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as file:
-        data = json.load(file)
-    if not isinstance(data, list):
-        raise ValueError("RAG eval cases file must contain a JSON list.")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not data:
+        raise ValueError("Evaluation cases must be a non-empty JSON list")
+
+    required = {"id", "query", "destination", "top_k"}
+    for index, case in enumerate(data, start=1):
+        if not isinstance(case, dict):
+            raise ValueError(f"Case {index} must be a JSON object")
+        missing = required - set(case)
+        if missing:
+            raise ValueError(f"Case {index} is missing: {', '.join(sorted(missing))}")
+        if not all(str(case[field]).strip() for field in required):
+            raise ValueError(f"Case {index} contains an empty required field")
+        if int(case["top_k"]) != TOP_K:
+            raise ValueError(f"Case {case['id']} top_k must be {TOP_K}")
     return data
 
 
-def _collect_case_destinations(cases: list[dict[str, Any]]) -> set[str]:
-    """从评估样例自动收集目的地，新增城市无需维护独立常量。"""
-    return {str(case["destination"]) for case in cases if case.get("destination")}
+def _load_qrels(path: Path) -> dict[str, dict[str, int]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Qrels must be a JSON object")
+
+    qrels: dict[str, dict[str, int]] = {}
+    for case_id, judgments in data.items():
+        if not isinstance(judgments, dict):
+            raise ValueError(f"qrels[{case_id!r}] must be a JSON object")
+        qrels[str(case_id)] = {
+            str(chunk_key): int(relevance)
+            for chunk_key, relevance in judgments.items()
+        }
+    return qrels
 
 
-def _contains_any(text: str, keywords: list[str]) -> bool:
-    return any(keyword in text for keyword in keywords)
+def _chunk_key(chunk: dict[str, Any]) -> str:
+    existing = str(chunk.get("chunk_key", ""))
+    if existing:
+        return existing
+    document_id = str(chunk.get("document_id") or chunk.get("source", ""))
+    return f"{document_id}::{chunk.get('title', '')}"
 
 
-def _count_keyword_hits(text: str, keywords: list[str]) -> int:
-    return sum(1 for keyword in keywords if keyword in text)
-
-
-def _evaluate_case(case: dict[str, Any], known_destinations: set[str]) -> dict[str, Any]:
-    top_k = int(case.get("top_k", RAG_TOP_K))
-    destination = str(case["destination"])
-    if destination not in known_destinations:
-        raise ValueError(f"Unknown evaluation destination: {destination}")
-    query, _ = build_destination_query(
-        destination=destination,
-        preferences=list(case.get("preferences", [])),
-        pace=case.get("pace"),
-        special_notes=case.get("special_notes"),
-    )
-
-    start_time = time.perf_counter()
-    chunks, rerank_usage, embedding_usage = retrieve_travel_guide_chunks(
-        query=query, top_k=top_k, destination=destination
-    )
-    latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
-
-    expected_title_keywords = list(case.get("expected_title_keywords", []))
-    required_content_keywords = list(case.get("required_content_keywords", []))
-    noise_title_keywords = list(case.get("noise_title_keywords", []))
-
-    titles = [str(chunk.get("title", "")) for chunk in chunks]
-    combined_text = "\n".join(
-        f"{chunk.get('title', '')}\n{chunk.get('text', '')}" for chunk in chunks
-    )
-
-    top1_title = titles[0] if titles else ""
-    top1_title_hit = _contains_any(top1_title, expected_title_keywords)
-    topk_title_hit = any(_contains_any(title, expected_title_keywords) for title in titles)
-    required_keyword_hits = _count_keyword_hits(combined_text, required_content_keywords)
-    noise_count = sum(
-        1 for title in titles if _contains_any(title, noise_title_keywords)
-    )
-
-    # MRR: 第一个命中期望关键词的结果排名的倒数
-    reciprocal_rank = 0.0
-    for rank, title in enumerate(titles, start=1):
-        if _contains_any(title, expected_title_keywords):
-            reciprocal_rank = 1.0 / rank
-            break
-
-    # 跨目的地污染：直接比较 Chunk metadata.destination，缺失也视为污染。
-    pollution_count = 0
-    for chunk in chunks:
-        if str(chunk.get("destination", "")) != destination:
-            pollution_count += 1
-
+def _final_ranking_result(
+    chunks: list[dict[str, Any]],
+    judgments: dict[str, int],
+    relevance_threshold: int,
+) -> dict[str, Any]:
+    top_chunks = chunks[:TOP_K]
+    chunk_keys = [_chunk_key(chunk) for chunk in top_chunks]
     return {
-        "id": case.get("id", "<unknown>"),
-        "destination": destination,
-        "query": query,
-        "top1_title": top1_title,
-        "top1_title_hit": top1_title_hit,
-        "topk_title_hit": topk_title_hit,
-        "required_keyword_hits": required_keyword_hits,
-        "required_keyword_total": len(required_content_keywords),
-        "noise_count": noise_count,
-        "reciprocal_rank": reciprocal_rank,
-        "pollution_count": pollution_count,
-        "latency_ms": latency_ms,
-        "embedding_prompt_tokens": embedding_usage.get("prompt_tokens", 0),
-        "rerank_prompt_tokens": rerank_usage.get("prompt_tokens", 0),
-        "titles": titles,
+        "precision_at_5": precision_at_5(
+            chunk_keys,
+            judgments,
+            relevance_threshold=relevance_threshold,
+        ),
+        "ndcg_at_5": ndcg_at_5(chunk_keys, judgments),
+        "chunk_keys": chunk_keys,
+        "titles": [str(chunk.get("title", "")) for chunk in top_chunks],
     }
 
 
-def _print_case_result(result: dict[str, Any]) -> None:
-    print(f"case: {result['id']}")
-    print(f"destination: {result['destination']}")
-    print(f"query: {result['query']}")
-    print(f"top1_title: {result['top1_title']}")
-    print(f"top1_title_hit: {result['top1_title_hit']}")
-    print(f"topk_title_hit: {result['topk_title_hit']}")
-    print(
-        "required_keyword_hits: "
-        f"{result['required_keyword_hits']}/{result['required_keyword_total']}"
+def _model_rerank_only(
+    query: str,
+    candidates: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, int], list[float]]:
+    scored, token_usage = _rerank_with_openrouter(
+        query,
+        candidates,
+        TOP_K,
+        filter_noise_titles=True,
     )
-    print(f"noise_count: {result['noise_count']}")
-    print(f"reciprocal_rank: {result['reciprocal_rank']:.3f}")
-    print(f"pollution_count: {result['pollution_count']}")
-    print(f"latency_ms: {result['latency_ms']}")
-    print(f"embedding_prompt_tokens: {result['embedding_prompt_tokens']}")
-    print(f"rerank_prompt_tokens: {result['rerank_prompt_tokens']}")
-    print("titles:")
-    for index, title in enumerate(result["titles"], start=1):
-        print(f"  {index}. {title}")
-    print("-" * 60)
+    if not scored:
+        raise RuntimeError(
+            "Model rerank failed; evaluation stopped without rule-based fallback"
+        )
+
+    reranked_chunks: list[dict[str, Any]] = []
+    rerank_scores: list[float] = []
+    for score, candidate_index in scored:
+        if not 0 <= candidate_index < len(candidates):
+            continue
+        reranked_chunks.append(dict(candidates[candidate_index]))
+        rerank_scores.append(float(score))
+
+    if len(reranked_chunks) != TOP_K:
+        raise RuntimeError(
+            f"Model rerank returned {len(reranked_chunks)} valid results; "
+            f"expected {TOP_K}. Evaluation stopped without rule-based fallback"
+        )
+    return reranked_chunks, token_usage, rerank_scores
+
+
+def _aggregate_final(rows: list[dict[str, Any]]) -> dict[str, float]:
+    if not rows:
+        raise ValueError("Cannot aggregate an empty result set")
+    total = len(rows)
+    return {
+        "precision_at_5": (
+            sum(float(row["precision_at_5"]) for row in rows) / total
+        ),
+        "ndcg_at_5": sum(float(row["ndcg_at_5"]) for row in rows) / total,
+    }
+
+
+def _default_output_path() -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return DEFAULT_OUTPUT_DIR / f"rag_retrieval_core_metrics_{timestamp}.json"
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def run(
+    cases_path: Path,
+    qrels_path: Path,
+    output_path: Path,
+    relevance_threshold: int = 2,
+) -> dict[str, Any]:
+    cases = _load_cases(cases_path)
+    qrels = _load_qrels(qrels_path)
+    case_ids = [str(case["id"]) for case in cases]
+    validate_qrels(qrels, case_ids)
+
+    below_threshold = [
+        case_id
+        for case_id in case_ids
+        if not any(
+            int(relevance) >= relevance_threshold
+            for relevance in qrels[case_id].values()
+        )
+    ]
+    if below_threshold:
+        raise ValueError(
+            "No qrels at or above relevance threshold for: "
+            + ", ".join(below_threshold)
+        )
+
+    recall_rows: list[float] = []
+    top_five_rows: list[dict[str, Any]] = []
+    case_results: list[dict[str, Any]] = []
+
+    for index, case in enumerate(cases, start=1):
+        case_id = str(case["id"])
+        query = str(case["query"]).strip()
+        destination = str(case["destination"])
+        judgments = qrels[case_id]
+
+        candidates, _ = _search_guide_chunks_by_chroma(
+            query=query,
+            top_k=CANDIDATE_K,
+            destination=destination,
+            retrieval_scope=RETRIEVAL_SCOPE_PLANNING,
+        )
+        if not candidates:
+            raise RuntimeError(
+                f"Vector retrieval returned no candidates for {case_id}; "
+                "the benchmark will not silently use keyword fallback"
+            )
+
+        candidate_keys = [_chunk_key(chunk) for chunk in candidates]
+        recall_at_20 = candidate_recall_at_20(
+            candidate_keys,
+            judgments,
+            relevance_threshold=relevance_threshold,
+        )
+        reranked_chunks, rerank_usage, rerank_scores = _model_rerank_only(
+            query,
+            candidates,
+        )
+        top_five_result = _final_ranking_result(
+            reranked_chunks,
+            judgments,
+            relevance_threshold,
+        )
+
+        recall_rows.append(recall_at_20)
+        top_five_rows.append(top_five_result)
+
+        case_results.append(
+            {
+                "id": case_id,
+                "query": query,
+                "destination": destination,
+                "recall_at_20": recall_at_20,
+                "precision_at_5": top_five_result["precision_at_5"],
+                "ndcg_at_5": top_five_result["ndcg_at_5"],
+                "candidate_chunk_keys": candidate_keys[:CANDIDATE_K],
+                "model_reranked_top_five_chunk_keys": top_five_result["chunk_keys"],
+                "model_reranked_top_five_titles": top_five_result["titles"],
+                "model_rerank_scores": rerank_scores,
+                "model_rerank_token_usage": rerank_usage,
+            }
+        )
+        print(f"[{index}/{len(cases)}] {case_id}", flush=True)
+
+    result: dict[str, Any] = {
+        "schema_version": 3,
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "methodology": {
+            "cases_path": str(cases_path),
+            "qrels_path": str(qrels_path),
+            "cases_sha256": _file_sha256(cases_path),
+            "qrels_sha256": _file_sha256(qrels_path),
+            "fixed_queries": True,
+            "embedding_model": EMBEDDING_MODEL,
+            "rerank_model": RERANK_MODEL,
+            "collection": CHROMA_COLLECTION_NAME,
+            "candidate_k": CANDIDATE_K,
+            "top_k": TOP_K,
+            "relevance_threshold": relevance_threshold,
+            "recall_at_20_denominator": CANDIDATE_K,
+            "candidate_order": "chroma_vector_similarity",
+            "retrieval_scope": RETRIEVAL_SCOPE_PLANNING,
+            "assistant_only_chunks_excluded": True,
+            "top_five_order": "model_cross_encoder_rerank",
+            "model_rerank_required": True,
+            "no_rule_rerank_fallback": True,
+            "fixed_noise_title_filter_enabled": True,
+            "no_keyword_fallback": True,
+        },
+        "summary": {
+            "recall_at_20": sum(recall_rows) / len(recall_rows),
+            **_aggregate_final(top_five_rows),
+        },
+        "cases": case_results,
+    }
+
+    if output_path.exists():
+        raise FileExistsError(f"Refusing to overwrite evaluation output: {output_path}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Evaluate RAG retrieval quality with a small scenario case set."
+        description=(
+            "Evaluate vector Recall@20 and model-reranked Precision@5/nDCG@5 "
+            "without rule-based fallback."
+        )
     )
+    parser.add_argument("--cases", type=Path, default=DEFAULT_CASES_PATH)
+    parser.add_argument("--qrels", type=Path, default=DEFAULT_QRELS_PATH)
+    parser.add_argument("--output", type=Path, default=None)
     parser.add_argument(
-        "--cases",
-        type=Path,
-        default=DEFAULT_CASES_PATH,
-        help="Path to the RAG eval cases JSON file.",
+        "--relevance-threshold",
+        type=int,
+        choices=[1, 2, 3],
+        default=2,
     )
     return parser
 
 
+def _print_summary(result: dict[str, Any], output_path: Path) -> None:
+    summary = result["summary"]
+    print("=== RAG Core Metrics ===")
+    print(f"Recall@20={summary['recall_at_20']:.3f}")
+    print(f"Precision@5={summary['precision_at_5']:.3f}")
+    print(f"nDCG@5={summary['ndcg_at_5']:.3f}")
+    print(f"output: {output_path}")
+
+
 def main() -> int:
     args = build_parser().parse_args()
-    cases = _load_cases(args.cases)
-    known_destinations = _collect_case_destinations(cases)
-    results = [_evaluate_case(case, known_destinations) for case in cases]
-
-    for result in results:
-        _print_case_result(result)
-
-    total = len(results)
-    top1_hits = sum(1 for result in results if result["top1_title_hit"])
-    topk_hits = sum(1 for result in results if result["topk_title_hit"])
-    total_noise = sum(int(result["noise_count"]) for result in results)
-    total_required_hits = sum(int(result["required_keyword_hits"]) for result in results)
-    total_required_keywords = sum(
-        int(result["required_keyword_total"]) for result in results
+    output_path = args.output or _default_output_path()
+    result = run(
+        cases_path=args.cases,
+        qrels_path=args.qrels,
+        output_path=output_path,
+        relevance_threshold=args.relevance_threshold,
     )
-    mrr = sum(result["reciprocal_rank"] for result in results) / total
-    noise_rate = total_noise / (total * int(cases[0].get("top_k", RAG_TOP_K))) * 100
-    total_pollution = sum(int(result["pollution_count"]) for result in results)
-    avg_latency = sum(result["latency_ms"] for result in results) / total
-    total_embedding_prompt_tokens = sum(
-        int(result["embedding_prompt_tokens"]) for result in results
-    )
-    total_rerank_prompt_tokens = sum(
-        int(result["rerank_prompt_tokens"]) for result in results
-    )
-
-    print("=== Summary ===")
-    print(f"cases: {total}")
-    print(f"destinations: {'、'.join(sorted(known_destinations))}")
-    print(f"top1_title_hit_rate: {top1_hits}/{total} ({top1_hits/total*100:.1f}%)")
-    print(f"topk_title_hit_rate: {topk_hits}/{total} ({topk_hits/total*100:.1f}%)")
-    print(f"required_keyword_coverage: {total_required_hits}/{total_required_keywords}")
-    print(f"MRR: {mrr:.3f}")
-    print(f"noise_count_total: {total_noise}")
-    print(f"noise_rate: {noise_rate:.1f}%")
-    print(f"cross_destination_pollution: {total_pollution}")
-    print(f"avg_latency_ms: {avg_latency:.1f}")
-    print(f"embedding_prompt_tokens_total: {total_embedding_prompt_tokens}")
-    print(f"rerank_prompt_tokens_total: {total_rerank_prompt_tokens}")
+    _print_summary(result, output_path)
     return 0
 
 

@@ -1,26 +1,18 @@
 # 🗺️ 旅游推荐助手
 
-> 融合大模型、RAG、本地攻略与高德地图能力的智能旅行规划系统
+> 融合大模型、RAG、外部工具接口、AI助手的智能旅行规划系统
 
 这是一个面向中文旅行场景的 AI 旅行规划项目。用户输入目的地、日期、预算、人数和偏好后，系统会自动生成结构化旅行方案，并进一步补充地图点位、天气信息、预算拆分、景点图片；同时提供热门目的地推荐与可调用工具的 AI 对话助手。
 
 相比只输出一段文本的 LLM Demo，这个项目更强调完整链路落地：从 **行程生成、攻略检索、地图信息补全、天气补充、对话助手，到历史管理**，尽量把 AI 能力组织成一个可交互、可保存、可展示的产品原型。
 
-## 📝 最近更新
-
-更多更新见：[CHANGELOG.md](./CHANGELOG.md)
-
-> **数据边界**：当前本地 Markdown 攻略用于 RAG 参考，并不等同于已逐条核验的实时 POI、门票、餐饮或住宿数据。涉及价格、营业状态和可预订性时，应以外部服务或人工核验结果为准。
-
----
-
 ## 📸 效果展示
 
-![1784973950038](image/README/1784973950038.png)
+![1784973950038](image/README/主页-规划区.png)
 
-![1784974020820](image/README/1784974020820.png)
+![1784974020820](image/README/主页-结果区.png)
 
-![1784974097819](image/README/1784974097819.png)
+![1784974097819](image/README/主页-我的行程区.png)
 
 ## ✨ 项目亮点
 
@@ -68,7 +60,7 @@
 
 ### 系统数据流
 
-![TravelPlanAssistant 系统数据流全景图](image/README/system-data-flow-4k.png)
+![TravelPlanAssistant 系统数据流全景图](image/README/全链路层.png)
 
 系统数据流由两条相互独立的链路组成：主链路接收用户的目的地、日期、预算与偏好，依次完成 Query Rewrite、三路 RAG 检索、Planner LLM 草稿生成、名称真实性校验、行程与预算组装，并按需调用高德地图补全地址、坐标与路线；结果页加载后再独立获取天气。对话助手则根据用户问题自主调用攻略、天气、地图或联网搜索工具，并通过 SSE 将最终回答逐段返回到浏览器
 
@@ -93,7 +85,7 @@
 
 ### RAG 检索流程
 
-![1785322666514](image/README/1785322666514.png)
+![1785322666514](image/README/rag检索层.png)
 
   **离线阶段**（`scripts/ingest_data.py`，手动执行）
 
@@ -149,7 +141,7 @@
 
 ### 动态知识库更新
 
-![动态知识库更新逻辑与技术全景](image/README/dynamic-knowledge-base-update-4k.png)
+![动态知识库更新逻辑与技术全景](image/README/动态更新知识库层.png)
 
 知识库采用**周期扫描 + 文档级增量同步**，而不是操作系统级实时文件监听。每轮同步会扫描本地 Markdown 攻略，读取文档 ID、路径、目的地和修改时间，并在统一换行符后计算全文 SHA-256 内容指纹；再按文档 ID 与 SQLite 中保存的历史清单比较，识别以下四类变化：
 
@@ -345,31 +337,3 @@ SSE 事件共 6 种：`status`（thinking / tool / streaming）、`tool_start`�
 ### 逐 token 流式的实现要点
 
 模型偶尔会把 `<tool_call>`、`<function=...>` 这类标记泄漏成正文。逐字下发时这类标记可能正好被切在两个 chunk 之间，因此下发前会计算「安全前缀」：把有可能正在形成标记的尾部留在缓冲区，等下一个 chunk 到达再判断。一旦确认泄漏就停止下发并切到工具摘要兜底；已经下发的干净前缀无法撤回，兜底内容追加在其后而不是整段替换。
-
----
-
-## ⚠️ 已知边界
-
-这些是当前实现的真实边界，不是待办清单：
-
-- 默认 `REDIS_ENABLED=false`、`ENABLE_AMAP_ENRICHMENT=false`，两者都是加速项/增强项而非主链路依赖。
-- 本地 RAG 不是开箱可用，首次必须执行 `scripts/ingest_data.py` 完成入库。
-- 知识库同步没有后台常驻任务，只有前台 CLI 脚本的循环。
-- 住宿不由模型产出：`PlannerDraft` 没有 hotel 字段，酒店取自攻略候选的第一个，且全程所有天共用同一家。
-- 行程编辑不走 RAG，`TripEditRequest.trip_id` 未被使用，编辑结果不落库。
-- `trip_id` 由「目的地 + 出发日期」拼成，同目的地同出发日再次保存会覆盖前一份。
-- MCP server 与 `tools/registry.py` 共用底层实现，但工具描述与参数默认值是各自维护的，存在分叉风险。
-- Rerank 通过 OpenRouter 独立配置 `RERANK_API_URL`、`RERANK_MODEL`、`RERANK_API_KEY`；Key 不会回退复用 `LLM_API_KEY`。
-- `.env.example` 与 `config.py` 的默认值不完全一致（`LLM_MODEL`、`EMBEDDING_MODEL`、`REDIS_ENABLED`、`LLM_BASE_URL`），没有 `.env` 时行为会不同。
-- 本地 Markdown 攻略用于 RAG 参考，不等同于已逐条核验的实时 POI、门票、餐饮或住宿数据。
-
----
-
-## ✅ 运行测试
-
-```powershell
-cd backend
-pytest
-```
-
-测试全部使用伪造的模型与外部服务，不联网、不消耗 API 额度。

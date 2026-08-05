@@ -81,7 +81,7 @@ def test_verified_llm_names_are_kept(monkeypatch) -> None:
         tips=["带薄外套"],
         days=[
             build_day(1, "大理古城-南门楼", "大理乐客特色小吃"),
-            build_day(2, "大理古城-南门楼", "过桥米线"),
+            build_day(2, "大理古城-南门楼", "大理乐客特色小吃"),
         ],
     )
     patch_pipeline(monkeypatch, draft)
@@ -91,7 +91,7 @@ def test_verified_llm_names_are_kept(monkeypatch) -> None:
     assert itinerary.days[0].spots[0].name == "大理古城-南门楼"
     assert itinerary.days[0].spots[0].description == "模型给出的景点说明。"
     assert itinerary.days[0].meals[0].name == "大理乐客特色小吃"
-    assert itinerary.days[1].meals[0].name == "过桥米线"
+    assert itinerary.days[1].meals == []
     assert all("已过滤" not in note for note in itinerary.source_notes)
 
 
@@ -139,8 +139,8 @@ def test_fabricated_names_become_empty_when_no_candidate_left(monkeypatch) -> No
     assert itinerary.days[1].spots == []
     assert itinerary.days[1].meals == []
     assert itinerary.days[1].transport == []
-    assert any("未从当前攻略检索到景点信息" in note for note in itinerary.days[1].notes)
-    assert any("未从当前攻略检索到餐饮信息" in note for note in itinerary.days[1].notes)
+    assert any("暂无可核验候选：符合当前条件的景点或活动" in note for note in itinerary.days[1].notes)
+    assert any("暂无可核验候选：符合当前饮食偏好和预算的餐厅" in note for note in itinerary.days[1].notes)
 
 
 def test_empty_rag_context_rejects_all_llm_names(monkeypatch) -> None:

@@ -3,7 +3,8 @@ export interface TripRequestPayload {
   start_date: string;
   end_date: string;
   travelers: number;
-  budget: number;
+  budget_min_per_person: number;
+  budget_max_per_person: number;
   preferences: string[];
   pace?: string | null;
   dietary_preferences: string[];
@@ -43,6 +44,8 @@ export interface MealItem {
 export interface HotelItem {
   name: string;
   level?: string | null;
+  reference_price?: string | null;
+  source?: string | null;
   estimated_cost?: number;
   location?: string | null;
   address?: string | null;

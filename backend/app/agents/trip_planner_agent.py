@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +18,10 @@ from app.config import (
 )
 from app.llm import build_chat_llm
 from app.models.schemas import DayPlan, TripEditRequest, TripRequest
+from app.services.fallback_candidates import (
+    extract_hotel_candidates,
+    extract_restaurant_candidates,
+)
 
 
 class PlannerDayDraft(BaseModel):
@@ -30,6 +33,10 @@ class PlannerDayDraft(BaseModel):
     spot_description: str = Field(..., description="推荐该景点的简短理由")
     meal_name: str = Field(..., description="当天的餐饮或餐厅建议")
     meal_notes: str = Field(..., description="简短的用餐说明")
+    meal_type: str | None = Field(default=None, description="早餐、午餐、晚餐或其他餐次")
+    spot_start_time: str | None = Field(default=None, description="景点开始时间，HH:MM")
+    spot_end_time: str | None = Field(default=None, description="景点结束时间，HH:MM")
+    transport_mode: str | None = Field(default=None, description="到主要景点的首选交通方式")
     daily_note: str = Field(..., description="当天的一条简短规划备注")
 
 
@@ -78,19 +85,6 @@ def _normalize_day_edit_payload(payload: dict) -> dict:
     return normalized
 
 
-def _extract_entity_names(contexts: list[str], pattern: str) -> list[str]:
-    """从 RAG 上下文中提取匹配 pattern 的实体名称列表。"""
-    names: list[str] = []
-    seen: set[str] = set()
-    for ctx in contexts:
-        for match in re.finditer(pattern, ctx):
-            name = match.group(1).strip()
-            if name and name not in seen:
-                seen.add(name)
-                names.append(name)
-    return names
-
-
 def _extract_json_object(raw_text: str) -> str | None:
     """从模型原始文本中尽量提取 JSON 对象字符串。"""
     text = raw_text.strip()
@@ -119,15 +113,31 @@ def collect_trip_context(
     pace: str | None = None,
     special_notes: str | None = None,
     top_k: int = RAG_TOP_K,
+    dietary_preferences: list[str] | None = None,
+    hotel_level: str | None = None,
+    budget_min_per_person: float | None = None,
+    budget_max_per_person: float | None = None,
+    day_count: int = 1,
 ) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
     """收集本地攻略片段。返回 (contexts, rewrite_usage, rerank_usage, embedding_usage)。"""
-    return get_destination_guide_context(
-        destination=destination,
-        preferences=preferences,
-        pace=pace,
-        special_notes=special_notes,
-        top_k=top_k,
-    )
+    context_kwargs = {
+        "destination": destination,
+        "preferences": preferences,
+        "pace": pace,
+        "special_notes": special_notes,
+        "top_k": top_k,
+    }
+    if dietary_preferences is not None:
+        context_kwargs["dietary_preferences"] = dietary_preferences
+    if hotel_level is not None:
+        context_kwargs["hotel_level"] = hotel_level
+    if budget_min_per_person is not None:
+        context_kwargs["budget_min_per_person"] = budget_min_per_person
+    if budget_max_per_person is not None:
+        context_kwargs["budget_max_per_person"] = budget_max_per_person
+    if day_count != 1:
+        context_kwargs["day_count"] = day_count
+    return get_destination_guide_context(**context_kwargs)
 
 
 def _build_chat_llm():
@@ -173,9 +183,9 @@ def generate_planner_draft(
 
     guide_context = "\n\n".join(rag_contexts) if rag_contexts else "暂无本地攻略上下文。"
 
-    # 从上下文中提取真实商户名，强制 LLM 使用
-    hotel_names = _extract_entity_names(rag_contexts, r"【([^】]*(?:酒店|民宿|客栈|宾馆|饭店|旅馆|旅店)[^】]*)】")
-    restaurant_names = _extract_entity_names(rag_contexts, r"【([^】]*(?:餐厅|小吃|火锅|菜|饭|面|汤|粥|粉|私房菜)[^】]*)】")
+    # 候选由已硬过滤的实体 Chunk 提取，Planner 不得扩写上下文之外的商户。
+    hotel_names = [item["name"] for item in extract_hotel_candidates(rag_contexts)]
+    restaurant_names = [item["name"] for item in extract_restaurant_candidates(rag_contexts)]
     hotel_list = "、".join(hotel_names[:6]) if hotel_names else "暂无"
     restaurant_list = "、".join(restaurant_names[:6]) if restaurant_names else "暂无"
 
@@ -196,7 +206,8 @@ def generate_planner_draft(
 结束日期：{request.end_date.isoformat()}
 天数：{day_count}
 人数：{request.travelers}
-预算：{request.budget}
+人均预算：{request.budget_min_per_person if request.budget_min_per_person is not None else '旧请求未提供'}-{request.budget_max_per_person if request.budget_max_per_person is not None else '旧请求未提供'} 元
+总预算范围：{request.total_budget_min:g}-{request.total_budget_max:g} 元
 偏好：{'、'.join(request.preferences) if request.preferences else '无特别偏好'}
 节奏：{request.pace or '适中'}
 饮食偏好：{'、'.join(request.dietary_preferences) if request.dietary_preferences else '无'}
@@ -215,7 +226,7 @@ def generate_planner_draft(
 要求：
 1. 输出一个整体 summary。
 2. 输出 {day_count} 天的 daily draft。
-3. 每天只给一个主要景点、一个餐饮建议和一条当天备注。
+3. 每天只给一个主要景点、一个餐饮建议和一条当天备注；同时给出符合当天安排的景点时段、餐次和首选交通方式。
 4. tips 保持简洁。
 5. day_index 必须从 1 到 {day_count}。
 6. 如果额外备注里有”想看日落””不想早起”这类明确要求，必须在 days 中体现，不要只放到 tips。
@@ -223,7 +234,8 @@ def generate_planner_draft(
 8. 每天的安排要符合”轻松”节奏，避免过满、避免太早出发。
 9. meal_name 必须从”可选的真实餐厅名称”列表中选择，不要用泛称。例如用”泸州幺妹私房菜(望花路店)”而不要用”当地私房菜”。
 10. 住宿安排必须从”可选的真实酒店名称”列表中选择，严禁使用”舒适型住宿””当地酒店””XX 舒适型住宿 1”等泛称。例如用”北京中关村皇冠假日酒店”而不要用”北京 舒适型住宿 1”。
-11. 只返回 JSON 对象，不要返回任何额外说明，不要使用 ```json 代码块。
+11. 上下文没有可核验实体的要求必须明确写“暂无可核验候选”，严禁自行补全名称或活动。
+12. 只返回 JSON 对象，不要返回任何额外说明，不要使用 ```json 代码块。
 
 JSON 结构示例：
 {{
@@ -237,6 +249,10 @@ JSON 结构示例：
       "spot_description": "景点推荐理由",
       "meal_name": "餐饮名称",
       "meal_notes": "餐饮说明",
+      "meal_type": "晚餐",
+      "spot_start_time": "14:00",
+      "spot_end_time": "17:00",
+      "transport_mode": "地铁",
       "daily_note": "当天备注"
     }}
   ]

@@ -155,6 +155,8 @@ def _rerank_with_openrouter(
     query: str,
     chunks: list[dict[str, str]],
     top_k: int,
+    *,
+    filter_noise_titles: bool = True,
 ) -> tuple[list[tuple[float, int]] | None, dict[str, int]]:
     """调用 OpenRouter Rerank API 做语义重排序。返回 (scored, token_usage)。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -162,10 +164,11 @@ def _rerank_with_openrouter(
         logger.info("skip OpenRouter rerank: incomplete config or empty chunks")
         return None, empty_usage
 
-    # 过滤已知噪声片段，避免浪费 rerank 名额。
+    # 在送入 Cross-encoder 前过滤已知噪声标题；评估与生产链路均保留该行为。
     filtered = [
-        (i, chunk) for i, chunk in enumerate(chunks)
-        if chunk.get("title", "") not in _NOISE_TITLES
+        (i, chunk)
+        for i, chunk in enumerate(chunks)
+        if not filter_noise_titles or chunk.get("title", "") not in _NOISE_TITLES
     ]
     if not filtered:
         logger.info("skip OpenRouter rerank: all chunks are noise")
@@ -321,29 +324,63 @@ def rerank_guide_chunks(
 
 
 def retrieve_travel_guide_chunks(
-    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
+    query: str,
+    top_k: int = RAG_TOP_K,
+    destination: str | None = None,
+    retrieval_scope: str | None = None,
+    categories: list[str] | None = None,
+    budget_tier: str | None = None,
 ) -> tuple[list[dict[str, str]], dict[str, int], dict[str, int]]:
     """返回带轻量 rerank 的原始攻略片段。返回 (chunks, rerank_usage, embedding_usage)。"""
     candidate_k = max(top_k * 2, 6)
-    search_kwargs = {"query": query, "top_k": candidate_k}
+    search_kwargs = {
+        "query": query,
+        "top_k": candidate_k,
+        "retrieval_scope": retrieval_scope,
+    }
+    if categories:
+        search_kwargs["categories"] = categories
+    if budget_tier:
+        search_kwargs["budget_tier"] = budget_tier
     if destination:
         search_kwargs["destination"] = destination
     matched_chunks, embedding_usage = search_guide_chunks_with_usage(**search_kwargs)
+    unique_chunks: list[dict[str, str]] = []
+    seen_entities: set[tuple[str, str]] = set()
+    for chunk in matched_chunks:
+        entity_key = (
+            chunk.get("category", ""),
+            chunk.get("entity_name") or chunk.get("title", ""),
+        )
+        if entity_key in seen_entities:
+            continue
+        seen_entities.add(entity_key)
+        unique_chunks.append(chunk)
+
     reranked_chunks, rerank_usage = rerank_guide_chunks(
-        query=query, matched_chunks=matched_chunks, top_k=top_k, destination=destination
+        query=query, matched_chunks=unique_chunks, top_k=top_k, destination=destination
     )
     return reranked_chunks, rerank_usage, embedding_usage
 
 
 def retrieve_travel_guide(
-    query: str, top_k: int = RAG_TOP_K, destination: str | None = None
+    query: str,
+    top_k: int = RAG_TOP_K,
+    destination: str | None = None,
+    retrieval_scope: str | None = None,
+    categories: list[str] | None = None,
+    budget_tier: str | None = None,
 ) -> tuple[list[str], dict[str, int], dict[str, int]]:
     """返回最相关的攻略片段。返回 (texts, rerank_usage, embedding_usage)。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
     cache_destination = destination or "all"
+    cache_scope = retrieval_scope or "assistant_all"
+    cache_categories = ",".join(sorted(categories or [])) or "all"
+    cache_budget_tier = budget_tier or "all"
     model_hash = hashlib.md5(RERANK_MODEL.encode()).hexdigest()[:8]
     cache_key = (
-        f"rag:guide:{model_hash}:{cache_destination}:"
+        f"rag:guide:{model_hash}:{cache_destination}:{cache_scope}:"
+        f"{cache_categories}:{cache_budget_tier}:"
         f"{_normalize_cache_text(query)}:{top_k}"
     )
     cached_value = get_cached_json(cache_key)
@@ -353,7 +390,12 @@ def retrieve_travel_guide(
     logger.info("rag cache miss: query=%s top_k=%s", query, top_k)
 
     matched_chunks, rerank_usage, embedding_usage = retrieve_travel_guide_chunks(
-        query=query, top_k=top_k, destination=destination
+        query=query,
+        top_k=top_k,
+        destination=destination,
+        retrieval_scope=retrieval_scope,
+        categories=categories,
+        budget_tier=budget_tier,
     )
 
     results: list[str] = []

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date as DateType, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TripRequest(BaseModel):
@@ -12,7 +12,21 @@ class TripRequest(BaseModel):
     start_date: DateType = Field(..., description="出行开始日期")
     end_date: DateType = Field(..., description="出行结束日期")
     travelers: int = Field(..., ge=1, description="出行人数")
-    budget: float = Field(..., ge=0, description="总预算")
+    budget_min_per_person: float | None = Field(
+        default=None,
+        ge=0,
+        description="人均预算下限",
+    )
+    budget_max_per_person: float | None = Field(
+        default=None,
+        ge=0,
+        description="人均预算上限",
+    )
+    budget: float | None = Field(
+        default=None,
+        ge=0,
+        description="兼容旧客户端的总预算；新客户端应传人均预算上下限",
+    )
     preferences: list[str] = Field(default_factory=list, description="旅行偏好标签")
     pace: str | None = Field(default=None, description="旅行节奏，例如轻松、适中、紧凑")
     dietary_preferences: list[str] = Field(
@@ -21,6 +35,35 @@ class TripRequest(BaseModel):
     )
     hotel_level: str | None = Field(default=None, description="酒店档次偏好")
     special_notes: str | None = Field(default=None, description="额外要求")
+
+    @model_validator(mode="after")
+    def validate_budget_contract(self) -> "TripRequest":
+        has_per_person_budget = (
+            self.budget_min_per_person is not None
+            or self.budget_max_per_person is not None
+        )
+        if has_per_person_budget:
+            if self.budget_min_per_person is None or self.budget_max_per_person is None:
+                raise ValueError("budget_min_per_person 和 budget_max_per_person 必须同时提供")
+            if self.budget_min_per_person > self.budget_max_per_person:
+                raise ValueError("人均预算下限不能高于上限")
+            return self
+
+        if self.budget is None:
+            raise ValueError("必须提供人均预算上下限，或兼容字段 budget")
+        return self
+
+    @property
+    def total_budget_min(self) -> float:
+        if self.budget_min_per_person is not None:
+            return self.budget_min_per_person * self.travelers
+        return float(self.budget or 0)
+
+    @property
+    def total_budget_max(self) -> float:
+        if self.budget_max_per_person is not None:
+            return self.budget_max_per_person * self.travelers
+        return float(self.budget or 0)
 
 
 class TripEditRequest(BaseModel):
@@ -74,6 +117,8 @@ class HotelItem(BaseModel):
 
     name: str = Field(..., description="酒店名称")
     level: str | None = Field(default=None, description="酒店档次")
+    reference_price: str | None = Field(default=None, description="知识库参考价格")
+    source: str | None = Field(default=None, description="候选实体来源")
     estimated_cost: float = Field(default=0.0, ge=0, description="预估花费")
     location: str | None = Field(default=None, description="酒店位置")
     address: str | None = Field(default=None, description="酒店详细地址")

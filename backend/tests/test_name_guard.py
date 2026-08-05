@@ -46,12 +46,19 @@ def test_verify_name_accepts_official_candidate() -> None:
     assert verify_name("大理邻步客栈", index, kind=KIND_HOTELS) is True
 
 
-def test_verify_name_accepts_literal_occurrence_in_context() -> None:
-    """候选正则没抽到、但正文里确实写了的名称同样放行。"""
+def test_verify_name_rejects_non_entity_occurrence_in_context() -> None:
+    """正文里的菜名不是餐厅实体，不能作为餐厅名称放行。"""
     index = build_guard_index(CONTEXTS)
 
     # 「过桥米线」只出现在正文里，不是任何一类的正式候选。
-    assert verify_name("过桥米线", index, kind=KIND_MEALS) is True
+    assert verify_name("过桥米线", index, kind=KIND_MEALS) is False
+
+
+def test_verify_name_rejects_cross_category_entity() -> None:
+    index = build_guard_index(CONTEXTS)
+
+    assert verify_name("大理邻步客栈", index, kind=KIND_SPOTS) is False
+    assert verify_name("大理乐客特色小吃", index, kind=KIND_SPOTS) is False
 
 
 def test_verify_name_accepts_candidate_with_extra_wording() -> None:

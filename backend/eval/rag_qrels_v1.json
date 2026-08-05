@@ -1,0 +1,120 @@
+{
+  "dali_sunset_easy_photo": {
+    "dali_guide.md::2.5 大理180度海景网红打卡地": 3,
+    "dali_guide.md::2.26 双廊古镇": 2
+  },
+  "dali_culture_slow_trip": {
+    "dali_guide.md::2.1 大理古城-南门楼": 3,
+    "dali_guide.md::2.2 崇圣寺三塔文化旅游区": 3,
+    "dali_guide.md::2.21 喜洲古镇": 2,
+    "dali_guide.md::2.23 周城村与白族扎染体验": 3
+  },
+  "dali_food_budget": {
+    "dali_guide.md::经济实惠（人均 30 元以下）": 2,
+    "dali_guide.md::中档特色（人均 50-150 元）": 3,
+    "dali_guide.md::高端体验（人均 200 元以上）": 3,
+    "dali_guide.md::白族家常菜与苍洱风味": 2,
+    "dali_guide.md::大理小吃与早餐": 2,
+    "dali_guide.md::餐饮预算与选择原则": 3
+  },
+  "chengdu_relax_food": {
+    "chengdu_guide.md::2.1 宽窄巷子景区": 3,
+    "chengdu_guide.md::2.8 人民公园（城市生活）": 3,
+    "chengdu_guide.md::中档川菜与茶馆": 2,
+    "chengdu_guide.md::中档火锅品牌": 2
+  },
+  "chengdu_food_deep": {
+    "chengdu_guide.md::经济实惠（人均 30 元以下）": 3,
+    "chengdu_guide.md::成都传统小吃与必比登平价餐厅": 3,
+    "chengdu_guide.md::中档特色（人均 50-150 元）": 3,
+    "chengdu_guide.md::中档川菜与茶馆": 2,
+    "chengdu_guide.md::中档火锅品牌": 3,
+    "chengdu_guide.md::美食类型与街区选择": 2
+  },
+  "chengdu_park_old_town_nature": {
+    "chengdu_guide.md::2.2 锦城公园": 3,
+    "chengdu_guide.md::2.3 黄龙溪古镇": 3,
+    "chengdu_guide.md::2.26 浣花溪公园（城市公园）": 2,
+    "chengdu_guide.md::2.27 天府艺术公园（城市公园与艺术）": 2,
+    "chengdu_guide.md::2.28 桂溪生态公园（城市公园）": 2
+  },
+  "xian_history_culture": {
+    "xian_guide.md::2.2 大明宫国家遗址公园": 3,
+    "xian_guide.md::2.3 秦始皇帝陵博物院": 3,
+    "xian_guide.md::2.7 陕西历史博物馆": 3,
+    "xian_guide.md::2.15 西安博物院与小雁塔": 2
+  },
+  "xian_food_night": {
+    "xian_guide.md::经济实惠（人均 30 元以下）": 3,
+    "xian_guide.md::小吃、早餐与面食（人均约10-60元）": 3,
+    "xian_guide.md::中档特色（人均 50-150 元）": 3,
+    "xian_guide.md::泡馍、陕菜与老字号（人均约35-200元）": 3
+  },
+  "xian_family_study": {
+    "xian_guide.md::2.2 大明宫国家遗址公园": 3,
+    "xian_guide.md::2.3 秦始皇帝陵博物院": 3,
+    "xian_guide.md::2.7 陕西历史博物馆": 3,
+    "xian_guide.md::2.15 西安博物院与小雁塔": 3,
+    "xian_guide.md::2.17 陕西自然博物馆": 2
+  },
+  "xiamen_couple_relax": {
+    "xiamen_guide.md::2.1 鼓浪屿风景名胜区": 3,
+    "xiamen_guide.md::2.5 菽庄花园（鼓浪屿园林与钢琴文化）": 2,
+    "xiamen_guide.md::2.6 皓月园（鼓浪屿历史文化与海滨景观）": 2,
+    "xiamen_guide.md::厦门传统小吃（人均约15-50元）": 2,
+    "xiamen_guide.md::咖啡、甜品与夜宵（人均约25-150元）": 2
+  },
+  "xiamen_architecture_history": {
+    "xiamen_guide.md::2.1 鼓浪屿风景名胜区": 2,
+    "xiamen_guide.md::2.3 南普陀寺": 3,
+    "xiamen_guide.md::2.4 胡里山炮台": 3,
+    "xiamen_guide.md::2.7 八卦楼风琴博物馆（鼓浪屿建筑与音乐文化）": 2,
+    "xiamen_guide.md::2.16 集美学村与龙舟池（嘉庚建筑与学村文化）": 2
+  },
+  "xiamen_bike_sea": {
+    "xiamen_guide.md::2.13 环岛路与黄厝海滩（海滨骑行与日出）": 3,
+    "xiamen_guide.md::2.14 曾厝垵文创村（小吃、民宿与夜间休闲）": 2,
+    "xiamen_guide.md::5. 预约、交通、价格与安全提示": 2
+  },
+  "sanya_beach_resort": {
+    "sanya_guide.md::2.9 亚龙湾公共海滩": 3,
+    "sanya_guide.md::2.10 大东海旅游区": 3,
+    "sanya_guide.md::2.11 三亚湾与椰梦长廊": 2,
+    "sanya_guide.md::经济型（200 元/晚以下）": 2,
+    "sanya_guide.md::舒适型（200-500 元/晚）": 3,
+    "sanya_guide.md::豪华型（500 元/晚以上）": 3
+  },
+  "sanya_family_relax": {
+    "sanya_guide.md::2.1 三亚千古情景区": 3,
+    "sanya_guide.md::2.3 南山寺": 3,
+    "sanya_guide.md::2.9 亚龙湾公共海滩": 3,
+    "sanya_guide.md::2.10 大东海旅游区": 2,
+    "sanya_guide.md::2.11 三亚湾与椰梦长廊": 2
+  },
+  "sanya_seafood_culture": {
+    "sanya_guide.md::2.3 南山寺": 3,
+    "sanya_guide.md::经济实惠（人均 30 元以下）": 2,
+    "sanya_guide.md::中档特色（人均 50-150 元）": 3,
+    "sanya_guide.md::高端体验（人均 200 元以上）": 2
+  },
+  "beijing_history_palace": {
+    "beijing_guide.md::2.1 天安门广场": 3,
+    "beijing_guide.md::2.2 故宫博物院": 3,
+    "beijing_guide.md::2.5 天坛公园（历史文化与中轴线）": 2,
+    "beijing_guide.md::2.6 景山公园（历史文化与中轴线）": 2
+  },
+  "beijing_food_local": {
+    "beijing_guide.md::经济实惠（人均 30 元以下）": 3,
+    "beijing_guide.md::老北京早餐与小吃（人均约20-60元）": 3,
+    "beijing_guide.md::炸酱面、包子与北京家常（人均约30-100元）": 3,
+    "beijing_guide.md::中档特色（人均 50-150 元）": 2,
+    "beijing_guide.md::北京烤鸭（人均约100-350元）": 3
+  },
+  "beijing_family_study": {
+    "beijing_guide.md::2.1 天安门广场": 3,
+    "beijing_guide.md::2.2 故宫博物院": 3,
+    "beijing_guide.md::2.30 中国国家博物馆（博物馆、艺术与研学）": 3,
+    "beijing_guide.md::2.31 首都博物馆（博物馆、艺术与研学）": 2,
+    "beijing_guide.md::2.33 中国科学技术馆（博物馆、艺术与研学）": 2
+  }
+}

@@ -56,3 +56,15 @@ Thumbs.db
 
 # Local Claude Code settings
 .claude/
+
+# WorkBuddy project state and local frontend cache
+.workbuddy/
+.vite/
+
+# Local image backups and temporary visual checks
+image/README/original_with_black_borders/
+outputs/.*
+outputs/v4_incremental_original_crop_check.png
+
+# Personal machine analysis (never publish)
+outputs/C盘个人目录只读清理分析_*.md

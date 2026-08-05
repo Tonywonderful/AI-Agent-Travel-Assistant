@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date as DateType, timedelta
 
 from app.agents.trip_planner_agent import (
@@ -22,7 +23,10 @@ from app.models.schemas import (
     TripRequest,
 )
 from app.services.map_service import enrich_itinerary_with_map_data
-from app.services.fallback_candidates import extract_fallback_candidates
+from app.services.fallback_candidates import (
+    extract_fallback_candidates,
+    extract_hotel_candidates,
+)
 from app.services.name_guard import (
     KIND_MEALS,
     KIND_SPOTS,
@@ -45,6 +49,10 @@ TECHNICAL_TIP_KEYWORDS = (
     "模型",
     "源码",
     "trip_service",
+)
+_MUST_HAVE_PATTERNS = (
+    re.compile(r"安排(?:一场|一次|一个)?(?P<requirement>[^，。；;]+)"),
+    re.compile(r"(?:必须|一定要)(?P<requirement>[^，。；;]+)"),
 )
 
 
@@ -69,6 +77,57 @@ def _clean_user_tips(tips: list[str], destination: str | None = None) -> list[st
         "古镇、生态廊道和石板路更适合慢慢走，鞋子尽量选择舒适防滑的款式。",
         "热门景点建议错峰出发，给拍照、用餐和交通预留更从容的缓冲时间。",
     ]
+
+
+def _extract_must_have_requirements(special_notes: str | None) -> list[str]:
+    if not special_notes:
+        return []
+    requirements: list[str] = []
+    for pattern in _MUST_HAVE_PATTERNS:
+        for match in pattern.finditer(special_notes):
+            value = match.group("requirement").strip()
+            if value and value not in requirements:
+                requirements.append(value)
+    return requirements
+
+
+def _requirement_keyword(requirement: str) -> str:
+    return requirement.removesuffix("体验").removesuffix("活动").strip() or requirement
+
+
+def _find_unverified_requirements(
+    requirements: list[str],
+    rag_contexts: list[str],
+) -> list[str]:
+    attraction_context = "\n".join(
+        context
+        for context in rag_contexts
+        if "| 标题: 餐饮：" not in context
+        and "**住宿档次**" not in context
+    )
+    return [
+        requirement
+        for requirement in requirements
+        if _requirement_keyword(requirement) not in attraction_context
+    ]
+
+
+def _replace_unverified_claim(text: str, requirements: list[str]) -> str:
+    for requirement in requirements:
+        if _requirement_keyword(requirement) in text:
+            return f"暂无可核验候选：{requirement}；本行程未安排该项。"
+    return text
+
+
+def _preferred_transport_mode(request: TripRequest) -> str:
+    preference_text = " ".join([*(request.preferences or []), request.special_notes or ""])
+    if "地铁" in preference_text:
+        return "地铁"
+    if "公交" in preference_text or "公共交通" in preference_text:
+        return "公共交通"
+    if "步行" in preference_text or "徒步" in preference_text:
+        return "步行"
+    return "公共交通"
 
 
 def _stable_bucket(text: str, modulo: int) -> int:
@@ -158,7 +217,7 @@ def _apply_route_based_transport_costs(itinerary: Itinerary) -> None:
                 continue
 
             mode = transport.mode or ""
-            if "公交" in mode:
+            if "公交" in mode or "地铁" in mode or "公共交通" in mode:
                 cost = max(2.0, 2.0 + (transport.distance_km * 0.25))
             elif "步行" in mode:
                 cost = 0.0
@@ -235,6 +294,11 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         preferences=request.preferences,
         pace=request.pace,
         special_notes=request.special_notes,
+        dietary_preferences=request.dietary_preferences,
+        hotel_level=request.hotel_level,
+        budget_min_per_person=request.budget_min_per_person,
+        budget_max_per_person=request.budget_max_per_person,
+        day_count=day_count,
     )
     llm_draft, planner_usage = generate_planner_draft(request, rag_contexts, day_count)
 
@@ -277,8 +341,13 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
     fallback_candidates = extract_fallback_candidates(rag_contexts)
     fallback_spot_names = fallback_candidates["spots"]
     fallback_meal_names = fallback_candidates["meals"]
-    fallback_hotel_names = fallback_candidates["hotels"]
-    fallback_hotel_name = fallback_hotel_names[0] if fallback_hotel_names else None
+    hotel_candidates = extract_hotel_candidates(rag_contexts)
+    fallback_hotel = hotel_candidates[0] if hotel_candidates else None
+    fallback_hotel_name = fallback_hotel["name"] if fallback_hotel else None
+    unavailable_requirements = _find_unverified_requirements(
+        _extract_must_have_requirements(request.special_notes),
+        rag_contexts,
+    )
 
     # 模型产出的名称必须能在攻略上下文里找到出处，否则视为编造并丢弃。
     # prompt 里的「只用真实名称」是软约束，这里把它变成硬校验。
@@ -287,6 +356,7 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
 
     raw_days: list[dict[str, object]] = []
     ticket_costs: list[float] = []
+    used_meal_names: set[str] = set()
     for index in range(day_count):
         day_number = index + 1
         current_date = request.start_date + timedelta(days=index)
@@ -312,12 +382,21 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
             spot_name = fallback_spot_names[index] if index < len(fallback_spot_names) else None
             spot_description = "根据本地攻略检索到的景点信息安排。" if spot_name else None
 
-        if meal_verified and llm_day is not None:
+        if (
+            meal_verified
+            and llm_day is not None
+            and llm_day.meal_name not in used_meal_names
+        ):
             meal_name = llm_day.meal_name
             meal_note = llm_day.meal_notes
         else:
-            meal_name = fallback_meal_names[index] if index < len(fallback_meal_names) else None
+            meal_name = next(
+                (name for name in fallback_meal_names if name not in used_meal_names),
+                None,
+            )
             meal_note = "来自本地攻略的餐饮条目。" if meal_name else None
+        if meal_name:
+            used_meal_names.add(meal_name)
 
         theme = llm_day.theme if llm_day is not None else f"{request.destination} 第 {day_number} 天轻松游"
         daily_note = (
@@ -325,13 +404,16 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
             if llm_day is not None
             else "今天以轻松游览为主，建议根据体力和天气灵活调整停留时间。"
         )
+        daily_note = _replace_unverified_claim(daily_note, unavailable_requirements)
         unavailable_notes: list[str] = []
         if not spot_name:
-            unavailable_notes.append("未从当前攻略检索到景点信息，今天未安排景点。")
+            unavailable_notes.append("暂无可核验候选：符合当前条件的景点或活动；今天未安排该项。")
         if not meal_name:
-            unavailable_notes.append("未从当前攻略检索到餐饮信息，今天未安排餐饮。")
+            unavailable_notes.append("暂无可核验候选：符合当前饮食偏好和预算的餐厅；今天未安排餐饮。")
         if fallback_hotel_name is None:
-            unavailable_notes.append("未从当前攻略检索到住宿信息，未安排住宿。")
+            unavailable_notes.append(
+                f"暂无可核验候选：{request.hotel_level or '所选档次'}酒店；未安排住宿。"
+            )
 
         ticket_cost = _estimate_ticket_cost(spot_name, spot_description) if spot_name else 0.0
 
@@ -344,6 +426,10 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
                 "spot_description": spot_description,
                 "meal_name": meal_name,
                 "meal_note": meal_note,
+                "meal_type": getattr(llm_day, "meal_type", None) if llm_day else None,
+                "spot_start_time": getattr(llm_day, "spot_start_time", None) if llm_day else None,
+                "spot_end_time": getattr(llm_day, "spot_end_time", None) if llm_day else None,
+                "transport_mode": getattr(llm_day, "transport_mode", None) if llm_day else None,
                 "daily_note": daily_note,
                 "unavailable_notes": unavailable_notes,
                 "ticket_cost": ticket_cost,
@@ -352,11 +438,14 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         ticket_costs.append(ticket_cost)
 
     ticket_total = round(sum(ticket_costs), 2)
-    target_total = request.budget * (
-        0.78 if request.pace == "轻松" else 0.92 if request.pace == "紧凑" else 0.85
+    total_budget = request.total_budget_max
+    target_total = max(
+        request.total_budget_min,
+        total_budget
+        * (0.78 if request.pace == "轻松" else 0.92 if request.pace == "紧凑" else 0.85),
     )
-    other_budget = round(request.budget * (0.05 + min(day_count, 4) * 0.01), 2)
-    allocatable_budget = max(target_total - ticket_total - other_budget, request.budget * 0.45)
+    other_budget = round(total_budget * (0.05 + min(day_count, 4) * 0.01), 2)
+    allocatable_budget = max(target_total - ticket_total - other_budget, total_budget * 0.45)
 
     hotel_level = request.hotel_level or "舒适型"
     if "豪华" in hotel_level:
@@ -390,6 +479,7 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
     )
 
     days: list[DayPlan] = []
+    previous_activity_name: str | None = None
     for index, raw_day in enumerate(raw_days):
         spot_name = raw_day["spot_name"]
         meal_name = raw_day["meal_name"]
@@ -406,8 +496,8 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
                 [
                     SpotItem(
                         name=str(spot_name),
-                        start_time="10:00",
-                        end_time="12:00",
+                        start_time=raw_day["spot_start_time"],
+                        end_time=raw_day["spot_end_time"],
                         description=str(raw_day["spot_description"]),
                         estimated_cost=float(raw_day["ticket_cost"]),
                         location=request.destination,
@@ -420,7 +510,7 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
                 [
                     MealItem(
                         name=str(meal_name),
-                        meal_type="午餐",
+                        meal_type=str(raw_day["meal_type"] or "正餐"),
                         estimated_cost=daily_meal_costs[index],
                         notes=str(raw_day["meal_note"]),
                     )
@@ -431,35 +521,42 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
             hotel=(
                 HotelItem(
                     name=fallback_hotel_name,
-                    level=hotel_level,
+                    level=fallback_hotel["level"] or None,
+                    reference_price=fallback_hotel["reference_price"] or None,
+                    source=fallback_hotel["source"] or None,
                     estimated_cost=daily_hotel_costs[index],
-                    location=request.destination,
+                    location=fallback_hotel["location"] or request.destination,
                 )
-                if fallback_hotel_name
+                if fallback_hotel
                 else None
             ),
             transport=(
                 [
                     TransportItem(
-                        mode="打车",
-                        from_place=f"{request.destination} 出发点",
+                        mode=str(raw_day["transport_mode"] or _preferred_transport_mode(request)),
+                        from_place=fallback_hotel_name or previous_activity_name,
                         to_place=str(spot_name),
                         estimated_cost=daily_transport_costs[index],
-                        duration="30 分钟",
                     )
                 ]
-                if spot_name
+                if spot_name and (fallback_hotel_name or previous_activity_name)
                 else []
             ),
             notes=daily_notes,
         )
         days.append(day_plan)
+        if spot_name:
+            previous_activity_name = str(spot_name)
 
     preference_text = "、".join(request.preferences) if request.preferences else "常规旅行体验"
     source_notes = [
         "Itinerary is assembled by trip_service.py and can optionally use LangChain structured output.",
     ]
     source_notes.extend(rag_contexts[:2])
+    source_notes.extend(
+        f"暂无可核验候选：{requirement}；Planner 未被允许自由补全该要求。"
+        for requirement in unavailable_requirements
+    )
 
     if not rag_contexts:
         source_notes.append(
@@ -486,6 +583,12 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
             "古镇、生态廊道和石板路更适合慢慢走，鞋子尽量选择舒适防滑的款式。",
         ]
     )
+    tips = [
+        tip
+        for tip in tips
+        if not any(_requirement_keyword(item) in tip for item in unavailable_requirements)
+    ]
+    tips.extend(f"暂无可核验候选：{item}。" for item in unavailable_requirements)
     if any("骑行" in context for context in rag_contexts):
         tips.append("如计划骑行，请以当地实时路况和可通行区域为准。")
     tips = _clean_user_tips(tips, request.destination)
@@ -498,6 +601,11 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
             "未检索到的信息不会以虚构地点补充。"
         )
     )
+    if any(_requirement_keyword(item) in summary for item in unavailable_requirements):
+        summary = (
+            f"这是一份为 {request.destination} 生成的 {day_count} 日行程，"
+            f"偏好重点为：{preference_text}。未检索到的信息不会以虚构地点补充。"
+        )
 
     itinerary = Itinerary(
         trip_id=f"trip_{request.destination}_{request.start_date.isoformat()}",
@@ -513,7 +621,7 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
     return _maybe_enrich_itinerary_with_map_data(
         itinerary,
         city=request.destination,
-        request_budget=request.budget,
+        request_budget=request.total_budget_max,
     )
 
 

@@ -1,0 +1,176 @@
+{
+  "dali_sunset_easy_photo": {
+    "dali_guide.md::2.5 大理180度海景网红打卡地": 3,
+    "dali_guide.md::2.16 洱海生态廊道": 2,
+    "dali_guide.md::2.19 磻溪村S湾": 2,
+    "dali_guide.md::2.26 双廊古镇": 3
+  },
+  "dali_culture_slow_trip": {
+    "dali_guide.md::2.1 大理古城-南门楼": 2,
+    "dali_guide.md::2.2 崇圣寺三塔文化旅游区": 3,
+    "dali_guide.md::2.21 喜洲古镇": 3,
+    "dali_guide.md::2.22 严家大院": 2,
+    "dali_guide.md::2.23 周城村与白族扎染体验": 3,
+    "dali_guide.md::2.31 大理白族自治州博物馆": 2,
+    "dali_guide.md::2.32 大理州非物质文化遗产博物馆": 2,
+    "dali_guide.md::2.38 沙溪古镇": 2,
+    "dali_guide.md::2.41 剑川古城": 2,
+    "dali_guide.md::2.42 巍山古城": 2
+  },
+  "dali_food_budget": {
+    "dali_guide.md::经济实惠（人均 30 元以下）": 3,
+    "dali_guide.md::中档特色（人均 50-150 元）": 3,
+    "dali_guide.md::高端体验（人均 200 元以上）": 3,
+    "dali_guide.md::白族家常菜与苍洱风味": 3,
+    "dali_guide.md::大理小吃与早餐": 3,
+    "dali_guide.md::大理州各县代表性风味": 2,
+    "dali_guide.md::餐饮预算与选择原则": 3
+  },
+  "chengdu_relax_food": {
+    "chengdu_guide.md::2.1 宽窄巷子景区": 3,
+    "chengdu_guide.md::2.5 成都武侯祠博物馆（历史文化）": 2,
+    "chengdu_guide.md::2.7 成都杜甫草堂博物馆（历史文化）": 2,
+    "chengdu_guide.md::2.8 人民公园（城市生活）": 3,
+    "chengdu_guide.md::2.9 文殊院（历史文化与宗教场所）": 2,
+    "chengdu_guide.md::成都传统小吃与必比登平价餐厅": 2,
+    "chengdu_guide.md::中档川菜与茶馆": 3,
+    "chengdu_guide.md::美食类型与街区选择": 2
+  },
+  "chengdu_food_deep": {
+    "chengdu_guide.md::2.6 锦里古街（历史街区与夜游）": 2,
+    "chengdu_guide.md::2.14 奎星楼街（城市美食街区）": 2,
+    "chengdu_guide.md::经济实惠（人均 30 元以下）": 3,
+    "chengdu_guide.md::成都传统小吃与必比登平价餐厅": 3,
+    "chengdu_guide.md::中档特色（人均 50-150 元）": 3,
+    "chengdu_guide.md::中档川菜与茶馆": 2,
+    "chengdu_guide.md::中档火锅品牌": 3,
+    "chengdu_guide.md::美食类型与街区选择": 3
+  },
+  "chengdu_park_old_town_nature": {
+    "chengdu_guide.md::2.2 锦城公园": 3,
+    "chengdu_guide.md::2.3 黄龙溪古镇": 3,
+    "chengdu_guide.md::2.26 浣花溪公园（城市公园）": 3,
+    "chengdu_guide.md::2.27 天府艺术公园（城市公园与艺术）": 3,
+    "chengdu_guide.md::2.28 桂溪生态公园（城市公园）": 3,
+    "chengdu_guide.md::2.29 兴隆湖湿地公园（城市公园）": 3,
+    "chengdu_guide.md::2.30 东安湖公园（城市公园与体育地标）": 3,
+    "chengdu_guide.md::2.35 洛带古镇（古镇与客家文化）": 3,
+    "chengdu_guide.md::2.36 安仁古镇（古镇与博物馆）": 3,
+    "chengdu_guide.md::2.37 平乐古镇（古镇与山水）": 3,
+    "chengdu_guide.md::2.38 街子古镇（古镇与山水）": 3,
+    "chengdu_guide.md::2.39 元通古镇（古镇与建筑）": 3,
+    "chengdu_guide.md::2.40 五凤溪古镇（古镇与山水）": 3,
+    "chengdu_guide.md::2.41 新场古镇（古镇与川西生活）": 3,
+    "chengdu_guide.md::2.46 成都天台山旅游景区（山水与生态）": 2,
+    "chengdu_guide.md::2.48 石象湖景区（花卉与湖泊）": 2
+  },
+  "xian_history_culture": {
+    "xian_guide.md::2.2 大明宫国家遗址公园": 3,
+    "xian_guide.md::2.3 秦始皇帝陵博物院": 3,
+    "xian_guide.md::2.5 西安城墙": 3,
+    "xian_guide.md::2.6 西安钟楼与鼓楼": 2,
+    "xian_guide.md::2.7 陕西历史博物馆": 3,
+    "xian_guide.md::2.8 大慈恩寺与大雁塔": 3,
+    "xian_guide.md::2.11 华清宫": 3,
+    "xian_guide.md::2.14 西安碑林博物馆": 3,
+    "xian_guide.md::2.15 西安博物院与小雁塔": 3
+  },
+  "xian_food_night": {
+    "xian_guide.md::2.6 西安钟楼与鼓楼": 2,
+    "xian_guide.md::经济实惠（人均 30 元以下）": 3,
+    "xian_guide.md::小吃、早餐与面食（人均约10-60元）": 3,
+    "xian_guide.md::中档特色（人均 50-150 元）": 3,
+    "xian_guide.md::泡馍、陕菜与老字号（人均约35-200元）": 3
+  },
+  "xian_family_study": {
+    "xian_guide.md::2.2 大明宫国家遗址公园": 3,
+    "xian_guide.md::2.3 秦始皇帝陵博物院": 3,
+    "xian_guide.md::2.5 西安城墙": 2,
+    "xian_guide.md::2.7 陕西历史博物馆": 3,
+    "xian_guide.md::2.8 大慈恩寺与大雁塔": 2,
+    "xian_guide.md::2.14 西安碑林博物馆": 2,
+    "xian_guide.md::2.15 西安博物院与小雁塔": 3
+  },
+  "xiamen_couple_relax": {
+    "xiamen_guide.md::2.1 鼓浪屿风景名胜区": 3,
+    "xiamen_guide.md::2.5 菽庄花园（鼓浪屿园林与钢琴文化）": 2,
+    "xiamen_guide.md::2.6 皓月园（鼓浪屿历史文化与海滨景观）": 2,
+    "xiamen_guide.md::2.7 八卦楼风琴博物馆（鼓浪屿建筑与音乐文化）": 2,
+    "xiamen_guide.md::2.12 沙坡尾艺术西区（老港口与文创街区）": 3,
+    "xiamen_guide.md::2.15 中山路步行街（骑楼建筑与老字号小吃）": 2,
+    "xiamen_guide.md::2.21 厦门之眼海上摩天轮（五缘湾夜景与亲子体验）": 2,
+    "xiamen_guide.md::厦门传统小吃（人均约15-50元）": 2,
+    "xiamen_guide.md::咖啡、甜品与夜宵（人均约25-150元）": 3
+  },
+  "xiamen_architecture_history": {
+    "xiamen_guide.md::2.1 鼓浪屿风景名胜区": 3,
+    "xiamen_guide.md::2.3 南普陀寺": 3,
+    "xiamen_guide.md::2.4 胡里山炮台": 3,
+    "xiamen_guide.md::2.5 菽庄花园（鼓浪屿园林与钢琴文化）": 2,
+    "xiamen_guide.md::2.6 皓月园（鼓浪屿历史文化与海滨景观）": 2,
+    "xiamen_guide.md::2.7 八卦楼风琴博物馆（鼓浪屿建筑与音乐文化）": 3,
+    "xiamen_guide.md::2.11 厦门大学思明校区（校园建筑与人文）": 2,
+    "xiamen_guide.md::2.15 中山路步行街（骑楼建筑与老字号小吃）": 2,
+    "xiamen_guide.md::2.16 集美学村与龙舟池（嘉庚建筑与学村文化）": 3
+  },
+  "xiamen_bike_sea": {
+    "xiamen_guide.md::2.13 环岛路与黄厝海滩（海滨骑行与日出）": 3,
+    "xiamen_guide.md::5. 预约、交通、价格与安全提示": 2
+  },
+  "sanya_beach_resort": {
+    "sanya_guide.md::2.6 蜈支洲岛旅游区": 2,
+    "sanya_guide.md::2.7 西岛海洋文化旅游区": 2,
+    "sanya_guide.md::2.9 亚龙湾公共海滩": 3,
+    "sanya_guide.md::2.10 大东海旅游区": 3,
+    "sanya_guide.md::2.11 三亚湾与椰梦长廊": 3,
+    "sanya_guide.md::2.12 后海村与皇后湾": 2,
+    "sanya_guide.md::2.19 天涯小镇": 2,
+    "sanya_guide.md::经济型（200 元/晚以下）": 2,
+    "sanya_guide.md::舒适型（200-500 元/晚）": 3,
+    "sanya_guide.md::豪华型（500 元/晚以上）": 3
+  },
+  "sanya_family_relax": {
+    "sanya_guide.md::2.1 三亚千古情景区": 2,
+    "sanya_guide.md::2.3 南山寺": 2,
+    "sanya_guide.md::2.7 西岛海洋文化旅游区": 3,
+    "sanya_guide.md::2.9 亚龙湾公共海滩": 3,
+    "sanya_guide.md::2.11 三亚湾与椰梦长廊": 3,
+    "sanya_guide.md::2.14 亚特兰蒂斯失落的空间水族馆": 2,
+    "sanya_guide.md::2.15 大小洞天旅游区": 2,
+    "sanya_guide.md::2.16 崖州古城与崖州学宫": 2,
+    "sanya_guide.md::2.18 三亚海昌梦幻海洋不夜城": 2,
+    "sanya_guide.md::2.22 白鹭公园": 2,
+    "sanya_guide.md::2.23 东岸湿地公园": 2
+  },
+  "sanya_seafood_culture": {
+    "sanya_guide.md::2.3 南山寺": 3,
+    "sanya_guide.md::中档特色（人均 50-150 元）": 3,
+    "sanya_guide.md::高端体验（人均 200 元以上）": 2
+  },
+  "beijing_history_palace": {
+    "beijing_guide.md::2.1 天安门广场": 3,
+    "beijing_guide.md::2.2 故宫博物院": 3,
+    "beijing_guide.md::2.3 颐和园": 2,
+    "beijing_guide.md::2.5 天坛公园（历史文化与中轴线）": 3,
+    "beijing_guide.md::2.6 景山公园（历史文化与中轴线）": 2,
+    "beijing_guide.md::2.7 北海公园（历史文化与中轴线）": 2,
+    "beijing_guide.md::2.8 恭王府博物馆（历史文化与中轴线）": 2,
+    "beijing_guide.md::2.19 明十三陵（历史文化与中轴线）": 2,
+    "beijing_guide.md::2.20 圆明园遗址公园（皇家园林与城市公园）": 2,
+    "beijing_guide.md::2.24 中山公园（皇家园林与城市公园）": 2
+  },
+  "beijing_food_local": {
+    "beijing_guide.md::经济实惠（人均 30 元以下）": 3,
+    "beijing_guide.md::老北京早餐与小吃（人均约20-60元）": 3,
+    "beijing_guide.md::炸酱面、包子与北京家常（人均约30-100元）": 3,
+    "beijing_guide.md::中档特色（人均 50-150 元）": 2,
+    "beijing_guide.md::北京烤鸭（人均约100-350元）": 3
+  },
+  "beijing_family_study": {
+    "beijing_guide.md::2.1 天安门广场": 3,
+    "beijing_guide.md::2.2 故宫博物院": 3,
+    "beijing_guide.md::2.15 北京古代建筑博物馆（先农坛）（历史文化与中轴线）": 2,
+    "beijing_guide.md::2.30 中国国家博物馆（博物馆、艺术与研学）": 3,
+    "beijing_guide.md::2.31 首都博物馆（博物馆、艺术与研学）": 2
+  }
+}

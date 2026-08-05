@@ -136,6 +136,32 @@ def test_trip_request_rejects_negative_budget() -> None:
         )
 
 
+def test_trip_request_uses_per_person_budget_contract() -> None:
+    request = TripRequest(
+        destination="成都",
+        start_date="2026-08-11",
+        end_date="2026-08-15",
+        travelers=2,
+        budget_min_per_person=3000,
+        budget_max_per_person=8000,
+    )
+
+    assert request.total_budget_min == 6000
+    assert request.total_budget_max == 16000
+    assert request.budget is None
+
+
+def test_trip_request_requires_both_per_person_budget_bounds() -> None:
+    with pytest.raises(ValidationError):
+        TripRequest(
+            destination="成都",
+            start_date="2026-08-11",
+            end_date="2026-08-15",
+            travelers=2,
+            budget_max_per_person=8000,
+        )
+
+
 def test_itinerary_can_be_created_successfully() -> None:
     '''测试 Itinerary 模型能否成功创建'''
     itinerary = build_itinerary()

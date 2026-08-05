@@ -77,24 +77,11 @@ def resolve_destination(question: str, destination: str | None = None) -> str | 
     return None
 
 
-def _rule_based_chat_query(question: str, destination: str) -> str:
-    """对话 rewrite fallback：城市 + 去噪后的用户问句。"""
-    cleaned = re.sub(r"\s+", " ", (question or "").strip())
-    cleaned = re.sub(r"[？?！!。；;，,、]+", " ", cleaned)
-    cleaned = " ".join(cleaned.split())
-    if len(cleaned) > 80:
-        cleaned = cleaned[:80].rstrip()
-    if destination and destination not in cleaned:
-        return f"{destination} {cleaned}".strip()
-    return cleaned or destination
-
-
 def rewrite_chat_query(question: str, destination: str) -> tuple[str, str]:
-    """返回 (query, rewrite_source)。"""
-    fallback = _rule_based_chat_query(question, destination)
+    """必须通过 LLM 改写对话检索 Query；失败时中断检索。"""
     llm = _build_chat_llm()
     if llm is None:
-        return fallback, "rule"
+        raise RuntimeError("LLM Query Rewrite is required but unavailable")
 
     system_prompt = (
         "你是旅行攻略向量检索的 query 改写器。"
@@ -116,24 +103,24 @@ def rewrite_chat_query(question: str, destination: str) -> tuple[str, str]:
                 ("human", human_prompt),
             ]
         )
-        query = _extract_response_text(response)
-        # 去掉可能的引号/多余标点
-        query = re.sub(r"[\"'`]+", "", query)
-        query = " ".join(query.split())
-        if query:
-            if destination not in query:
-                query = f"{destination} {query}"
-            logger.info(
-                "chat rewrite: dest=%s question=%s -> %s",
-                destination,
-                question[:80],
-                query,
-            )
-            return query, "llm"
-    except Exception:
-        logger.warning("chat query rewrite failed, using rule fallback", exc_info=True)
+    except Exception as exc:
+        raise RuntimeError("LLM Query Rewrite failed") from exc
 
-    return fallback, "rule"
+    query = _extract_response_text(response)
+    query = re.sub(r"[\"'`]+", "", query)
+    query = " ".join(query.split())
+    if not query:
+        raise RuntimeError("LLM Query Rewrite returned an empty query")
+    if destination not in query:
+        raise RuntimeError("LLM Query Rewrite omitted the destination")
+
+    logger.info(
+        "chat rewrite: dest=%s question=%s -> %s",
+        destination,
+        question[:80],
+        query,
+    )
+    return query, "llm"
 
 
 def _truncate_snippet(text: str, limit: int = MAX_SNIPPET_CHARS) -> str:
@@ -171,7 +158,17 @@ def tool_search_travel_guide(
             source="local_rag",
         )
 
-    query, rewrite_source = rewrite_chat_query(q, dest)
+    try:
+        query, rewrite_source = rewrite_chat_query(q, dest)
+    except RuntimeError as exc:
+        logger.warning("search_travel_guide query rewrite failed: %s", exc)
+        return ToolResult(
+            ok=False,
+            name=TOOL_NAME,
+            error=str(exc),
+            summary=f"本地攻略检索失败：{exc}",
+            source="local_rag",
+        )
 
     try:
         contexts, _rerank_usage, _embed_usage = retrieve_travel_guide(

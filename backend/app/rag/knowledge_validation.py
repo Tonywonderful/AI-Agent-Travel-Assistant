@@ -10,7 +10,6 @@ from app.services.fallback_candidates import extract_fallback_candidates
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-RETRIEVAL_RULES_PATH = BACKEND_DIR / "data" / "retrieval_rules.json"
 EVAL_CASES_PATH = BACKEND_DIR / "eval" / "rag_eval_cases.json"
 _FALLBACK_CATEGORIES = ("spots", "meals", "hotels")
 
@@ -43,60 +42,6 @@ def _read_guide_texts(errors: list[str]) -> dict[str, str]:
         if path.exists():
             guide_texts[destination] = path.read_text(encoding="utf-8")
     return guide_texts
-
-
-def _validate_rule_list(
-    rules: Any,
-    label: str,
-    source_text: str,
-    errors: list[str],
-) -> None:
-    if not isinstance(rules, list) or not rules:
-        errors.append(f"{label} 必须是非空规则列表。")
-        return
-
-    for index, rule in enumerate(rules, start=1):
-        if not isinstance(rule, dict):
-            errors.append(f"{label} 第 {index} 条不是对象。")
-            continue
-        _string_list(rule.get("triggers"), f"{label} 第 {index} 条 triggers", errors)
-        keywords = _string_list(rule.get("keywords"), f"{label} 第 {index} 条 keywords", errors)
-        for keyword in keywords:
-            if keyword not in source_text:
-                errors.append(f"{label} 第 {index} 条扩展词未命中攻略：{keyword}")
-
-
-def _validate_retrieval_rules(
-    rules_config: Any,
-    guide_texts: dict[str, str],
-    errors: list[str],
-) -> None:
-    if not isinstance(rules_config, dict):
-        errors.append("retrieval_rules.json 根节点必须是对象。")
-        return
-
-    all_guide_text = "\n".join(guide_texts.values())
-    _validate_rule_list(
-        rules_config.get("global_rules"), "global_rules", all_guide_text, errors
-    )
-
-    destinations = rules_config.get("destinations")
-    if not isinstance(destinations, dict):
-        errors.append("retrieval_rules.json 的 destinations 必须是对象。")
-        return
-    for destination, config in destinations.items():
-        if destination not in guide_texts:
-            errors.append(f"检索规则引用了未登记目的地：{destination}")
-            continue
-        if not isinstance(config, dict):
-            errors.append(f"目的地 {destination} 的规则配置必须是对象。")
-            continue
-        _validate_rule_list(
-            config.get("rules"),
-            f"{destination} rules",
-            guide_texts[destination],
-            errors,
-        )
 
 
 def _chunk_to_rag_context(chunk: dict[str, str]) -> str:
@@ -186,7 +131,7 @@ def _validate_eval_cases(
 
 
 def validate_knowledge_base() -> list[str]:
-    """校验当前攻略、规则、fallback 与 RAG 评估断言是否保持一致。"""
+    """校验当前攻略、fallback 与 RAG 评估断言是否保持一致。"""
     errors: list[str] = []
     guide_texts = _read_guide_texts(errors)
     chunks = load_guide_chunks()
@@ -199,7 +144,6 @@ def validate_knowledge_base() -> list[str]:
                 f"source={chunk.get('source')}, destination={chunk.get('destination')}"
             )
 
-    _validate_retrieval_rules(_load_json(RETRIEVAL_RULES_PATH), guide_texts, errors)
     _validate_fallback_candidates(chunks, guide_texts, errors)
     _validate_eval_cases(_load_json(EVAL_CASES_PATH), guide_texts, chunks, errors)
     return errors

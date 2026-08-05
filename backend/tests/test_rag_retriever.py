@@ -16,10 +16,13 @@ def test_retrieve_travel_guide_formats_chunks_as_text(monkeypatch) -> None:
     """测试 retriever 会把检索结果格式化成可直接引用的文本片段。"""
 
     def fake_search_guide_chunks_with_usage(
-        query: str, top_k: int = RAG_TOP_K
+        query: str,
+        top_k: int = RAG_TOP_K,
+        retrieval_scope: str | None = None,
     ) -> tuple[list[dict[str, str]], dict[str, int]]:
         assert query == "大理 古城 美食"
         assert top_k == 6
+        assert retrieval_scope is None
         return [
             {
                 "source": "dali_guide.md",
@@ -47,10 +50,13 @@ def test_retrieve_travel_guide_returns_empty_when_no_chunks(monkeypatch) -> None
     """测试没有召回任何片段时，会返回空列表。"""
 
     def fake_search_guide_chunks_with_usage(
-        query: str, top_k: int = RAG_TOP_K
+        query: str,
+        top_k: int = RAG_TOP_K,
+        retrieval_scope: str | None = None,
     ) -> tuple[list[dict[str, str]], dict[str, int]]:
         assert query == "火星 沙漠 极地科考"
         assert top_k == 6
+        assert retrieval_scope is None
         return [], {"prompt_tokens": 0, "completion_tokens": 0}
 
     monkeypatch.setattr(retriever, "search_guide_chunks_with_usage", fake_search_guide_chunks_with_usage)
@@ -66,6 +72,47 @@ def test_retrieve_travel_guide_returns_empty_when_no_chunks(monkeypatch) -> None
     results, _, _ = retriever.retrieve_travel_guide("火星 沙漠 极地科考", top_k=2)
 
     assert results == []
+
+
+def test_retrieval_scope_is_forwarded_and_separates_cache(monkeypatch) -> None:
+    captured_search_scopes: list[str | None] = []
+    cache_keys: list[str] = []
+
+    def fake_search_guide_chunks_with_usage(
+        query: str,
+        top_k: int,
+        retrieval_scope: str | None = None,
+        **kwargs,
+    ) -> tuple[list[dict[str, str]], dict[str, int]]:
+        captured_search_scopes.append(retrieval_scope)
+        return [], {"prompt_tokens": 0, "completion_tokens": 0}
+
+    monkeypatch.setattr(
+        retriever,
+        "search_guide_chunks_with_usage",
+        fake_search_guide_chunks_with_usage,
+    )
+    monkeypatch.setattr(retriever, "get_cached_json", lambda key: cache_keys.append(key))
+    monkeypatch.setattr(retriever, "set_cached_json", lambda *args, **kwargs: None)
+
+    retriever.retrieve_travel_guide(
+        "厦门 骑行",
+        top_k=2,
+        destination="厦门",
+        retrieval_scope="planning",
+    )
+    retriever.retrieve_travel_guide(
+        "厦门 骑行",
+        top_k=2,
+        destination="厦门",
+        retrieval_scope=None,
+    )
+
+    rag_cache_keys = [key for key in cache_keys if key.startswith("rag:guide:")]
+    assert captured_search_scopes == ["planning", None]
+    assert ":planning:" in rag_cache_keys[0]
+    assert ":assistant_all:" in rag_cache_keys[1]
+    assert rag_cache_keys[0] != rag_cache_keys[1]
 
 
 def test_openrouter_rerank_sends_expected_payload_and_maps_indices(monkeypatch) -> None:

@@ -36,12 +36,12 @@
   <g class="stage" data-stage="rag">
     <rect x="40" y="378" width="1520" height="720" rx="16" fill="#E1F5EE" stroke="#0F6E56"/>
     <text x="65" y="411" class="T st green">B. 在线 RAG：Query 改写 + 三轮检索 + 单轮检索内核</text><text x="65" y="435" class="T ss" fill="#0F6E56">入口：collect_trip_context() → get_destination_guide_context()；本地模型：Ollama qwen3-embedding:4b</text>
-    <g class="node" data-id="b1"><rect x="65" y="463" width="240" height="100" rx="10" fill="#FFF" stroke="#0F6E56"/><text x="185" y="489" text-anchor="middle" class="T nt green">1. Query Rewrite</text><text x="185" y="514" text-anchor="middle" class="T tx" fill="#0F6E56">优先 LLM 改写关键词</text><text x="185" y="537" text-anchor="middle" class="T tx" fill="#0F6E56">失败 → retrieval_rules.json</text><text x="185" y="556" text-anchor="middle" class="T xs" fill="#0F6E56">例：大理 日落 洱海 拍照</text></g>
+    <g class="node" data-id="b1"><rect x="65" y="463" width="240" height="100" rx="10" fill="#FFF" stroke="#0F6E56"/><text x="185" y="489" text-anchor="middle" class="T nt green">1. Query Rewrite</text><text x="185" y="514" text-anchor="middle" class="T tx" fill="#0F6E56">优先 LLM 改写关键词</text><text x="185" y="537" text-anchor="middle" class="T tx" fill="#0F6E56"></text><text x="185" y="556" text-anchor="middle" class="T xs" fill="#0F6E56">例：大理 日落 洱海 拍照</text></g>
     <path d="M305 513H355" class="lineG"/>
     <g class="node" data-id="b2"><rect x="362" y="452" width="1166" height="122" rx="12" fill="#FFF" stroke="#0F6E56"/><text x="382" y="479" class="T nt green">2. 外层拆成三条 Query；每一条都独立执行下方“单轮检索内核”</text>
       <rect x="382" y="495" width="330" height="58" rx="8" fill="#E1F5EE" stroke="#0F6E56"/><text x="547" y="519" text-anchor="middle" class="T tx green">主需求检索 · top_k = 5</text><text x="547" y="541" text-anchor="middle" class="T xs" fill="#0F6E56">改写后的 Query · candidate_k = 10</text>
       <rect x="733" y="495" width="350" height="58" rx="8" fill="#E1F5EE" stroke="#0F6E56"/><text x="908" y="519" text-anchor="middle" class="T tx green">住宿专项 · top_k = 2</text><text x="908" y="541" text-anchor="middle" class="T xs" fill="#0F6E56">“目的地 住宿 酒店 民宿” · 候选 6</text>
-      <rect x="1104" y="495" width="404" height="58" rx="8" fill="#E1F5EE" stroke="#0F6E56"/><text x="1306" y="519" text-anchor="middle" class="T tx green">餐饮专项 · top_k = 2</text><text x="1306" y="541" text-anchor="middle" class="T xs" fill="#0F6E56">“目的地 餐饮 美食 餐厅” · 候选 6</text>
+      <rect x="1104" y="495" width="404" height="58" rx="8" fill="#E1F5EE" stroke="#0F6E56"/><text x="1306" y="519" text-anchor="middle" class="T tx green">餐饮专项 · top_k = 5</text><text x="1306" y="541" text-anchor="middle" class="T xs" fill="#0F6E56">“目的地 餐饮 美食 餐厅” · 候选 10</text>
     </g>
     <path d="M945 574V606" class="lineG"/>
     <rect x="65" y="613" width="1463" height="276" rx="13" fill="#FFF" stroke="#0F6E56"/><text x="85" y="641" class="T nt green">3. 单轮检索内核 × 3</text>

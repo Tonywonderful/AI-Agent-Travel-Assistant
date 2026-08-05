@@ -40,6 +40,7 @@ const dietaryOptions = [
   { label: "素食", icon: "◇" },
   { label: "低糖", icon: "◇" },
 ];
+const fallbackDestinationOptions = ["北京", "成都", "大理", "三亚", "厦门", "西安"];
 
 function formatDate(date: Date): string {
   const year = date.getFullYear();
@@ -93,6 +94,13 @@ function openDatePicker(input: HTMLInputElement | null | undefined) {
 }
 
 const noteCount = computed(() => formState.notes.length);
+const destinationOptions = computed(() => {
+  const cities = recommendations.value.map((item) => item.city).filter(Boolean);
+  return Array.from(new Set([...fallbackDestinationOptions, ...cities])).map((city) => ({
+    label: city,
+    value: city,
+  }));
+});
 
 function toggleOption(list: string[], value: string) {
   const index = list.indexOf(value);
@@ -206,7 +214,8 @@ async function handleSubmit() {
     start_date: formState.startDate,
     end_date: formState.endDate,
     travelers: formState.travelers,
-    budget: formState.budgetMax,
+    budget_min_per_person: formState.budgetMin,
+    budget_max_per_person: formState.budgetMax,
     preferences: formState.preferences,
     pace: formState.pace,
     dietary_preferences: formState.dietaryPreferences,
@@ -266,10 +275,34 @@ onBeforeUnmount(stopProgress);
       <div class="primary-fields">
         <div class="field field--destination">
           <label>目的地</label>
-          <div class="control">
-            <AppIcon name="pin" :size="18" />
-            <input v-model="formState.destination" type="text" placeholder="输入目的地" />
-            <AppIcon name="pin" :size="14" />
+          <div class="control control--destination">
+            <AppIcon class="destination-prefix" name="pin" :size="18" />
+            <a-select
+              v-model:value="formState.destination"
+              class="destination-select"
+              :bordered="false"
+              :options="destinationOptions"
+              placeholder="请选择目的地"
+              popup-class-name="destination-select-popup"
+              aria-label="选择目的地"
+            >
+              <template #option="{ label, value }">
+                <div class="destination-option">
+                  <span class="destination-option__icon"><AppIcon name="pin" :size="15" /></span>
+                  <span>{{ label }}</span>
+                  <AppIcon
+                    v-if="formState.destination === value"
+                    class="destination-option__check"
+                    name="check-circle"
+                    :size="17"
+                    :stroke-width="2.2"
+                  />
+                </div>
+              </template>
+              <template #suffixIcon>
+                <AppIcon class="destination-chevron" name="chevron-down" :size="16" />
+              </template>
+            </a-select>
           </div>
         </div>
 
@@ -500,7 +533,8 @@ onBeforeUnmount(stopProgress);
   box-shadow: 0 0 0 3px rgba(45, 140, 255, 0.1);
 }
 
-.control input {
+.control input,
+.control select {
   min-width: 0;
   flex: 1;
   height: 100%;
@@ -510,6 +544,135 @@ onBeforeUnmount(stopProgress);
   outline: 0;
   background: transparent;
   font-size: calc(13px * var(--ui-scale));
+}
+
+.control--destination {
+  position: relative;
+  gap: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.destination-prefix {
+  position: absolute;
+  left: calc(10px * var(--ui-scale));
+  top: 50%;
+  z-index: 2;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.destination-select {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  cursor: pointer;
+}
+
+:deep(.destination-select .ant-select-selector) {
+  width: 100%;
+  height: 100% !important;
+  padding: 0 calc(38px * var(--ui-scale)) 0 calc(38px * var(--ui-scale)) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:deep(.destination-select .ant-select-selection-item),
+:deep(.destination-select .ant-select-selection-placeholder) {
+  display: flex;
+  align-items: center;
+  color: #324667;
+  font-size: calc(13px * var(--ui-scale));
+  line-height: calc(38px * var(--ui-scale));
+}
+
+:deep(.destination-select .ant-select-selection-placeholder) {
+  color: #8a9ab0;
+}
+
+:deep(.destination-select .ant-select-arrow) {
+  right: calc(10px * var(--ui-scale));
+  width: calc(18px * var(--ui-scale));
+  height: calc(18px * var(--ui-scale));
+  margin-top: calc(-9px * var(--ui-scale));
+  color: #627590;
+}
+
+.destination-chevron {
+  flex: 0 0 auto;
+  pointer-events: none;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+:deep(.destination-select.ant-select-open .destination-chevron) {
+  color: #1677ff;
+  transform: rotate(180deg);
+}
+
+:global(.destination-select-popup) {
+  padding: 6px !important;
+  border: 1px solid #e3ebf5;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  box-shadow: 0 14px 36px rgba(38, 70, 110, 0.16), 0 3px 10px rgba(38, 70, 110, 0.08) !important;
+  backdrop-filter: blur(10px);
+}
+
+:global(.destination-select-popup .ant-select-item) {
+  min-height: 38px;
+  padding: 0 10px !important;
+  border-radius: 7px;
+  color: #3f536f;
+  font-size: 13px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+:global(.destination-select-popup .ant-select-item-option-content) {
+  overflow: visible;
+}
+
+:global(.destination-select-popup .ant-select-item-option-active:not(.ant-select-item-option-disabled)) {
+  color: #1677ff;
+  background: #f1f7ff !important;
+}
+
+:global(.destination-select-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled)) {
+  color: #0a67d8;
+  background: #eaf4ff !important;
+  font-weight: 650;
+}
+
+:global(.destination-select-popup .ant-select-item-option-state) {
+  display: none;
+}
+
+.destination-option {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.destination-option__icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #6e83a0;
+  border-radius: 7px;
+  background: #f2f6fb;
+}
+
+:global(.destination-select-popup .ant-select-item-option-active) .destination-option__icon,
+:global(.destination-select-popup .ant-select-item-option-selected) .destination-option__icon {
+  color: #1677ff;
+  background: #fff;
+}
+
+.destination-option__check {
+  margin-left: auto;
+  color: #1677ff;
 }
 
 .control--date-range {
